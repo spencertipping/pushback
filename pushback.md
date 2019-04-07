@@ -119,12 +119,12 @@ before any data can move. If `input` and `output` are the only availability
 variables, though, then the fundamental logic is really simple:
 
 ```pl
-whenever ($input->readable && $output->writable)
+whenever ($input_readable && $output_writable)
 {
-  my @stuff = $input->read;
-  @stuff = $fn1->(@stuff);
-  @stuff = $fn2->(@stuff);
-  $output->write(@stuff);
+  sysread $input_fd, my $data;
+  $data = $fn1->($data);
+  $data = $fn2->($data);
+  syswrite $output_fd, $data;
 }
 ```
 
@@ -132,58 +132,23 @@ All we have to do is reduce our stream graph to a series of these `whenever`
 blocks and find a way to schedule them.
 
 
-### Blocking vs cancellation
-Let's take something simple like the `pv` tool. `pv` is `cat`, but it prints a
-throughput meter to `stderr` every second while it's running. Starting with
-`cat`, here's how we'd build it up:
+### `select` catalyst
+The goal is to lift blocking calls like `select()` as far as we can so you can
+always combine/defer them. As a result, the `select` catalyst never calls
+`select()`. Instead, it describes the `select` call you should make to resolve
+frontier dependencies.
 
-```
-stdin --> stdout                                # cat
-
-stdin --+--> stdout                             #
-        |                                       # pv
-        +--> measure --> format --> stderr      #
-```
-
-This raises an interesting question, though. We've forked `stdin` to go to two
-destinations, which seems reasonable enough; but should `stdin -> stdout` block
-on `stderr`'s writability? In `pv`'s case, definitely not. If `stderr` isn't
-writable, we should just drop the formatting rather than creating backpressure.
-So our real topology is more like this:
-
-```
-stdin --+--> stdout
-        |
-        +--> measure --> format --> dropper --> stderr
-```
-
-`dropper` advertises that it's always writable, but forwards data only when its
-downstream is available. Fair enough.
-
-...but now we have a new suboptimality: `format` does some work to generate its
-output. If `dropper` is just going to discard the data, why go to the effort?
-
-The answer, of course, is that we shouldn't. Our logic should look like this:
+_Catalysts are streams of bitvector sets._ Reading a select-catalyst gives you
+its current frontier, and writing to it updates streams' availability. For
+example, here's how you would create a normal `select` loop:
 
 ```pl
-whenever ($stdin->readable && $stdout->writable)
+while (1)
 {
-  my $data = $stdin->read;
-
-  # Top fork output
-  $stdout->write($data);
-
-  # Bottom fork output
-  my $next = $measurement_fn->($data);
-  if ($stderr->writable)
-  {
-    $next = $format_fn->($next);
-    $stderr->write($next);
-  }
+  my ($r, $w, $e) = $catalyst->read;
+  select $r, $w, $e, undef;
+  $catalyst->write($r, $w, $e);
 }
 ```
 
-In this case `stderr` isn't blocking a stream segment, it's cancelling one.
-
-**FIXME:** the above is totally wrong. We want buffering elements, not
-cancellation.
+Catalysts are readable and writable iff the frontier is nonempty.
