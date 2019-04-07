@@ -239,12 +239,75 @@ Each such transition tries the `while` loop.
 package pushback::compiler;
 sub new
 {
-  my $class = shift;
+  my ($class, $name) = shift;
   my $gensym = 0;
   my @code;
-  bless { scope  => {},
-          gensym => \$gensym,
-          code   => \@code }, $class;
-  # TODO
+  bless { parent  => undef,
+          name    => $name,
+          scope   => {},
+          closure => {},
+          gensym  => \$gensym,
+          code    => \@code,
+          end     => undef }, $class;
+}
+
+sub child
+{
+  my ($self, $name, $end) = @_;
+  bless { parent  => $self,
+          name    => "$$self{name} $name",
+          scope   => $$self{scope},
+          closure => $$self{closure},
+          gensym  => $$self{gensym},
+          code    => $$self{code},
+          end     => $end }, ref $self;
+}
+
+sub gensym { "g" . ${shift->{gensym}}++ }
+sub code
+{
+  my $self = shift;
+  my $code = shift;
+  my %vars;
+  ${$$self{closure}}{$vars{+shift} = $self->gensym} = shift while @_ >= 2;
+  my $vars = join"|", keys %vars;
+  push @{$$self{code}},
+       keys(%vars) ? $code =~ s/\$($vars)/"\$" . ${$$self{scope}}{$1}/egr
+                   : $code;
+  $self;
+}
+
+sub mark
+{
+  my $self = shift;
+  $self->code("#line 1 \"$$self{name} @_\"");
+}
+
+sub block
+{
+  my ($self, $type, $name) = @_;
+  $self->code("$type(")->code(@_)->code("){")
+       ->child($name // $type,
+               "}");
+}
+
+sub if    { shift->block(if => @_) }
+sub while { shift->block(while => @_) }
+sub end
+{
+  my $self = shift;
+  $self->code($$self{end});
+  $$self{parent};
+}
+
+sub compile
+{
+  my $self    = shift;
+  my @closure = sort keys %{$$self{closure}};
+  my $setup   = sprintf "my (%s) = \@_;", join",", map "\$$_", @closure;
+  my $code    = join"\n", "sub{", $setup, @{$$self{code}}, "}";
+  my $sub     = eval $code;
+  die "$@ compiling $code" if $@;
+  $sub->(@{$$self{closure}}{@closure});
 }
 ```

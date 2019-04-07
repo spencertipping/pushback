@@ -1,5 +1,5 @@
 # Pushback: evented IO for Perl, but with backpressure
-**TODO:** document this
+[Documentation as literate source code.](pushback.md)
 
 
 ## Why Perl?
