@@ -102,7 +102,7 @@ handle some edge cases, and improve performance if we retroactively admit to
 some dishonesty.
 
 
-## Streams aren't real
+## Flow control
 Until now I've been describing streams as objects that handle data; that's how
 we think of them, after all. But there's no reason they should work this way --
 and a number of reasons they really shouldn't. For one thing, if streams are a
@@ -112,11 +112,11 @@ it efficient to propagate read/write availability; we're walking the object
 graph for every state change, and a lot of intermediate objects are just
 cut-through elements that don't have independent state.
 
-First, the real world is simpler than the world of stream objects. In stream
-terms we might do something like `input -> map(fn1) -> map(fn2) -> output`,
-which involves a bunch of negotiation before any data can move. If `input` and
-`output` are the only availability variables, though, then the fundamental logic
-is really simple:
+The good news is that the real world is simpler than the world of stream
+objects. In stream terms we might do something like
+`input -> map(fn1) -> map(fn2) -> output`, which involves a bunch of negotiation
+before any data can move. If `input` and `output` are the only availability
+variables, though, then the fundamental logic is really simple:
 
 ```pl
 whenever ($input->readable && $output->writable)
@@ -127,3 +127,6 @@ whenever ($input->readable && $output->writable)
   $output->write(@stuff);
 }
 ```
+
+All we have to do is reduce our stream graph to a series of these `whenever`
+blocks and find a way to schedule them.
