@@ -1,5 +1,16 @@
 # Pushback: evented IO for Perl, but with backpressure
-**TODO:** document the library
+**TODO:** document this
+
+
+## Why Perl?
+Because it's awesome, but more importantly because it uses reference counting
+for memory management. In this case that's a big feature.
+
+Pushback is built on stream objects that maintain a bidirectional conversation,
+which means they hold references to each other. A common problem with designs
+like this is that streams are more closely coupled to the IO resource lifecycle
+than they are to a mark/sweep GC lifecycle; you want things to be closed as soon
+as nobody refers to them.
 
 
 ## Why do you need backpressure?
@@ -19,4 +30,5 @@ http.createServer((req, res) => {
 Because `write()` has a nonblocking API contract, it has no way to create
 backpressure against reads from `req`. As a result, node.js will run out of
 memory if you try to use this server in an environment where data-in outruns
-data-out.
+data-out. If we want to do nonblocking IO responsibly, we need a way for reads
+and writes to be coordinated. That's what `pushback` does.
