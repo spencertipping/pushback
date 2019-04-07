@@ -97,12 +97,33 @@ So, all we need to do is create a single `select_catalyst`, ask it for a bunch
 of individual FD streams, hook them up, and then `$catalyst->read->() while 1`,
 right?
 
-Almost. It's really tempting to run with what we have, but we can simplify a
-lot, handle some edge cases, and improve performance in the process. To explain
-the next part, I'll need to back to square one for a moment.
+Almost. It's really tempting to run with what we have but we can simplify a lot,
+handle some edge cases, and improve performance if we retroactively admit to
+some dishonesty.
 
 
-### Flow algebra
-Until now I've implied that streams are data containers, but this is a lie.
-Streams _describe_ data containment and availability, but don't themselves _do_
-anything.
+## Streams aren't real
+Until now I've been describing streams as objects that handle data; that's how
+we think of them, after all. But there's no reason they should work this way --
+and a number of reasons they really shouldn't. For one thing, if streams are a
+polymorphic abstraction then we're doing a polymorphic method call for every IO
+event; that's not going to give us fast code. Streams-as-objects also don't make
+it efficient to propagate read/write availability; we're walking the object
+graph for every state change, and a lot of intermediate objects are just
+cut-through elements that don't have independent state.
+
+First, the real world is simpler than the world of stream objects. In stream
+terms we might do something like `input -> map(fn1) -> map(fn2) -> output`,
+which involves a bunch of negotiation before any data can move. If `input` and
+`output` are the only availability variables, though, then the fundamental logic
+is really simple:
+
+```pl
+whenever ($input->readable && $output->writable)
+{
+  my @stuff = $input->read;
+  @stuff = $fn1->(@stuff);
+  @stuff = $fn2->(@stuff);
+  $output->write(@stuff);
+}
+```

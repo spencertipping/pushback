@@ -1,4 +1,6 @@
 #line 3 "pushback.md"
+# Documentation at https://github.com/spencertipping/pushback.
+#
 # Copyright 2019 Spencer Tipping
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
