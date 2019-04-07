@@ -161,8 +161,8 @@ OK, let's implement `pv` and talk about how it works. Structurally we have this:
 my $catalyst    = pushback::select_catalyst->new;
 my $measurement = pushback::reducer([0, 0], "AB", "+");
 
-$catalyst->fd(\*STDIN)
-  ->into($catalyst->fd(\*STDOUT))       # stdin -> stdout...
+$catalyst->r(\*STDIN)
+  ->into($catalyst->w(\*STDOUT))        # stdin -> stdout...
   ->map(sub { (length($_[0]), $dt) })   # ... numeric pairs
     ->into($measurement);               # ... send to measurement reducer
 
@@ -170,7 +170,7 @@ $catalyst->interval(1)                  # timed output (emit elapsed time)
   ->map(sub { @$measurement })          # ... return measurement output
   ->grep(sub { $_[1] > 2 })             # ... when two seconds have passed
   ->map(sub { sprintf(...) })           # ... format it
-  ->into($catalyst->fd(\*STDERR));      # ... and print to stderr
+  ->into($catalyst->w(\*STDERR));       # ... and print to stderr
 
 $catalyst->loop;                        # run while frontier exists
 ```
