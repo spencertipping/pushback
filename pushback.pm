@@ -24,3 +24,29 @@
 use v5.14;
 use strict;
 use warnings;
+#line 171 "pushback.md"
+package pushback::select_catalyst;
+use constant epoch => int time();
+use Time::HiRes qw/time/;
+
+sub new
+{
+  my $class = shift;
+  bless { read_fds   => [],             # bit-packed
+          write_fds  => [],             # bit-packed
+          fibers     => [],             # index is significant
+          perl_files => [],             # index == fileno($fh)
+          timeline   => [] }, $class;   # sorted _descending_ by time
+}
+#line 239 "pushback.md"
+package pushback::compiler;
+sub new
+{
+  my $class = shift;
+  my $gensym = 0;
+  my @code;
+  bless { scope  => {},
+          gensym => \$gensym,
+          code   => \@code }, $class;
+  # TODO
+}

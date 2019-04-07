@@ -153,6 +153,36 @@ while (1)
 
 Catalysts are readable and writable iff the frontier is nonempty.
 
+Internally, the `select` catalyst stores mappings between file descriptors and
+fibers using a packed encoding:
+
+```
+$read_fds[$i] = $fd        << 20 | $fiber_idx << 6 | $bit & 0x3f
+$timeline[$i] = $dt_millis << 20 | $fiber_idx << 6 | $bit & 0x3f
+```
+
+The catalyst also holds a reference to the perl file object for each fd. This
+lets us use `sysread` and `syswrite` instead of `POSIX::read` and
+`POSIX::write`. Normally we could go straight to POSIX, but perl's POSIX module
+doesn't support offsets within the scalar. That means we can't do any circular
+buffering.
+
+```perl
+package pushback::select_catalyst;
+use constant epoch => int time();
+use Time::HiRes qw/time/;
+
+sub new
+{
+  my $class = shift;
+  bless { read_fds   => [],             # bit-packed
+          write_fds  => [],             # bit-packed
+          fibers     => [],             # index is significant
+          perl_files => [],             # index == fileno($fh)
+          timeline   => [] }, $class;   # sorted _descending_ by time
+}
+```
+
 
 ### Fibers and stream availability
 OK, let's implement `pv` and talk about how it works. Structurally we have this:
@@ -184,3 +214,37 @@ interval -> map -> grep -> map -> stderr
 
 That means we'll block and then run either fiber depending on what the scheduler
 tell us: we might get `stdin->stdout` or we might get `interval->stderr`.
+
+Fibers run automatically when (and while) all relevant endpoints are available.
+Because a fiber may have many endpoints, we pack endpoint availability into a
+bit vector per fiber. This results in skeletal logic like this:
+
+```pl
+while ($avail0 == 0x... [&& $avail1 == 0x... && ...])
+{
+  ...
+  if (...) {                            # grep compiles to this
+    ...
+    $availN &= ~0x...;                  # write() calls may compile to this
+    ...
+  }
+}
+```
+
+Catalysts call stream methods that run `$availN |= 0x...` to activate specific
+endpoints in response to `select()` or other promises that things won't block.
+Each such transition tries the `while` loop.
+
+```perl
+package pushback::compiler;
+sub new
+{
+  my $class = shift;
+  my $gensym = 0;
+  my @code;
+  bless { scope  => {},
+          gensym => \$gensym,
+          code   => \@code }, $class;
+  # TODO
+}
+```
