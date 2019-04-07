@@ -283,10 +283,10 @@ sub mark
 
 sub block
 {
-  my ($self, $type, $name) = @_;
+  my $self = shift;
+  my $type = shift;
   $self->code("$type(")->code(@_)->code("){")
-       ->child($name // $type,
-               "}");
+       ->child($name, "}");
 }
 
 sub if    { shift->block(if => @_) }
@@ -307,4 +307,13 @@ sub compile
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{closure}}{@closure});
 }
+```
+
+
+## Fiber-backed streams
+In the world of fibers and catalysts, a stream is just a thin wrapper around
+fiber state. It provides accessors to the fiber's availability flag vectors and
+manages state-sharing across the JIT boundary.
+
+```perl
 ```

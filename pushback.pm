@@ -86,10 +86,10 @@ sub mark
 
 sub block
 {
-  my ($self, $type, $name) = @_;
+  my $self = shift;
+  my $type = shift;
   $self->code("$type(")->code(@_)->code("){")
-       ->child($name // $type,
-               "}");
+       ->child($name, "}");
 }
 
 sub if    { shift->block(if => @_) }
@@ -110,3 +110,5 @@ sub compile
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{closure}}{@closure});
 }
+#line 319 "pushback.md"
+
