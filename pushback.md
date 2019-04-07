@@ -130,3 +130,60 @@ whenever ($input->readable && $output->writable)
 
 All we have to do is reduce our stream graph to a series of these `whenever`
 blocks and find a way to schedule them.
+
+
+### Blocking vs cancellation
+Let's take something simple like the `pv` tool. `pv` is `cat`, but it prints a
+throughput meter to `stderr` every second while it's running. Starting with
+`cat`, here's how we'd build it up:
+
+```
+stdin --> stdout                                # cat
+
+stdin --+--> stdout                             #
+        |                                       # pv
+        +--> measure --> format --> stderr      #
+```
+
+This raises an interesting question, though. We've forked `stdin` to go to two
+destinations, which seems reasonable enough; but should `stdin -> stdout` block
+on `stderr`'s writability? In `pv`'s case, definitely not. If `stderr` isn't
+writable, we should just drop the formatting rather than creating backpressure.
+So our real topology is more like this:
+
+```
+stdin --+--> stdout
+        |
+        +--> measure --> format --> dropper --> stderr
+```
+
+`dropper` advertises that it's always writable, but forwards data only when its
+downstream is available. Fair enough.
+
+...but now we have a new suboptimality: `format` does some work to generate its
+output. If `dropper` is just going to discard the data, why go to the effort?
+
+The answer, of course, is that we shouldn't. Our logic should look like this:
+
+```pl
+whenever ($stdin->readable && $stdout->writable)
+{
+  my $data = $stdin->read;
+
+  # Top fork output
+  $stdout->write($data);
+
+  # Bottom fork output
+  my $next = $measurement_fn->($data);
+  if ($stderr->writable)
+  {
+    $next = $format_fn->($next);
+    $stderr->write($next);
+  }
+}
+```
+
+In this case `stderr` isn't blocking a stream segment, it's cancelling one.
+
+**FIXME:** the above is totally wrong. We want buffering elements, not
+cancellation.
