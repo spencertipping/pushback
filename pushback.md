@@ -1,5 +1,7 @@
 # Pushback: evented IO for Perl, but with backpressure
 ```perl
+# Documentation at https://github.com/spencertipping/pushback.
+#
 # Copyright 2019 Spencer Tipping
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -39,4 +41,41 @@ resources (each with an fd) joined with an "intersect" stream.
 
 
 ### IO negotiation
+In principle this is trivial: each stream can tell you whether it's readable and
+writable at any given point in time. Nothing to it.
 
+...except, of course, that for IO resources each of those questions involves a
+round-trip to the kernel. That gets really slow if we have a bunch of things
+going on. We should batch things up into `select()` bitvectors when we can.
+
+...except that you might not want to use `select()`. First, not every
+stream-of-stuff backs into an IO resource at all; what if you have a UNIX shared
+memory segment or a stream of periodic events generated from a timer? Second,
+`select()` itself isn't always the right choice for nonblocking IO; on Linux
+`epoll` can be faster, but it's not portable.
+
+So a stream's readability and writability is sometimes discoverable, sometimes
+updated asynchronously, and may involve a conversation about one or more FDs.
+
+
+### Edge triggers, IO actions, and sharing
+node.js uses read-side edge triggering and assumes the destination is always
+writable. Pushback doesn't have the always-writable level state, so edge
+triggers need to be bidirectional. IO will happen when a readable edge trigger
+meets a writable level state or vice versa, and that in turn means that
+FD-backed streams keep track of previous `select()` results.
+
+...but let's complicate matters a little by making a topology with a join point:
+
+```
+input_1 --> |
+            | join_union --> output_1
+input_2 --> |
+```
+
+If `output_1` broadcasts writability leftwards, `join_union` needs to pass that
+information along to its inputs. But that writability isn't a firm promise; if,
+for instance, both inputs consider their output to be writable and `input_1`
+then writes something, `input_2` can't jump on the bandwagon and also try to
+write stuff. It needs to wait for another writability trigger. And that means we
+need another edge trigger, "I'm not writable anymore."
