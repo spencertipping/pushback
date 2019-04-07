@@ -244,7 +244,6 @@ sub new
   my @code;
   bless { parent  => undef,
           name    => $name,
-          scope   => {},
           closure => {},
           gensym  => \$gensym,
           code    => \@code,
@@ -256,10 +255,9 @@ sub child
   my ($self, $name, $end) = @_;
   bless { parent  => $self,
           name    => "$$self{name} $name",
-          scope   => $$self{scope},
           closure => $$self{closure},
           gensym  => $$self{gensym},
-          code    => $$self{code},
+          code    => [],
           end     => $end }, ref $self;
 }
 
@@ -296,8 +294,7 @@ sub while { shift->block(while => @_) }
 sub end
 {
   my $self = shift;
-  $self->code($$self{end});
-  $$self{parent};
+  $$self{parent}->code(join"\n", @{$$self{code}, $$self{end});
 }
 
 sub compile
