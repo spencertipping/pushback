@@ -77,5 +77,32 @@ If `output_1` broadcasts writability leftwards, `join_union` needs to pass that
 information along to its inputs. But that writability isn't a firm promise; if,
 for instance, both inputs consider their output to be writable and `input_1`
 then writes something, `input_2` can't jump on the bandwagon and also try to
-write stuff. It needs to wait for another writability trigger. And that means we
+write stuff. It needs to wait for another writability event. And that means we
 need another edge trigger, "I'm not writable anymore."
+
+
+### Catalyst streams
+Nonblocking IO doesn't mean "nobody blocks"; if it did, any nonblocking program
+would consume 100% CPU. Instead, it means "no one IO thing blocks other IO
+things" -- or to put it differently, a single thread multiplexes IO with minimal
+latency.
+
+The reason I bring this up is that nonblocking IO still involves blocking, just
+on a `select` or `epoll` output instead of a single file descriptor. If we think
+about it this way, we don't really need a whole framework to implement
+nonblocking IO; we just need an action scheduler. Instead of _doing_ things, our
+scheduler _produces_ things to do: it's a stream of functions.
+
+So, all we need to do is create a single `select_catalyst`, ask it for a bunch
+of individual FD streams, hook them up, and then `$catalyst->read->() while 1`,
+right?
+
+Almost. It's really tempting to run with what we have, but we can simplify a
+lot, handle some edge cases, and improve performance in the process. To explain
+the next part, I'll need to back to square one for a moment.
+
+
+### Flow algebra
+Until now I've implied that streams are data containers, but this is a lie.
+Streams _describe_ data containment and availability, but don't themselves _do_
+anything.
