@@ -24,7 +24,7 @@
 use v5.14;
 use strict;
 use warnings;
-#line 172 "pushback.md"
+#line 68 "pushback.md"
 package pushback::select_catalyst;
 use constant epoch => int time();
 use Time::HiRes qw/time/;
@@ -38,7 +38,7 @@ sub new
           perl_files => [],             # index == fileno($fh)
           timeline   => [] }, $class;   # sorted _descending_ by time
 }
-#line 240 "pushback.md"
+#line 136 "pushback.md"
 package pushback::compiler;
 sub new
 {
