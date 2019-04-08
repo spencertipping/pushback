@@ -24,7 +24,7 @@
 use v5.14;
 use strict;
 use warnings;
-#line 171 "pushback.md"
+#line 172 "pushback.md"
 package pushback::select_catalyst;
 use constant epoch => int time();
 use Time::HiRes qw/time/;
@@ -38,18 +38,17 @@ sub new
           perl_files => [],             # index == fileno($fh)
           timeline   => [] }, $class;   # sorted _descending_ by time
 }
-#line 239 "pushback.md"
+#line 240 "pushback.md"
 package pushback::compiler;
 sub new
 {
   my ($class, $name) = shift;
   my $gensym = 0;
-  my @code;
   bless { parent  => undef,
           name    => $name,
           closure => {},
           gensym  => \$gensym,
-          code    => \@code,
+          code    => [],
           end     => undef }, $class;
 }
 
@@ -92,7 +91,7 @@ sub block
        ->child($name, "}");
 }
 
-sub if    { shift->block(if => @_) }
+sub if    { shift->block(if    => @_) }
 sub while { shift->block(while => @_) }
 sub end
 {
@@ -110,5 +109,3 @@ sub compile
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{closure}}{@closure});
 }
-#line 319 "pushback.md"
-

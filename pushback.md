@@ -151,7 +151,8 @@ while (1)
 }
 ```
 
-Catalysts are readable and writable iff the frontier is nonempty.
+Catalysts are readable iff the frontier is nonempty. (If they were always
+readable, they would cause the same frontier to be read indefinitely.)
 
 Internally, the `select` catalyst stores mappings between file descriptors and
 fibers using a packed encoding:
@@ -241,12 +242,11 @@ sub new
 {
   my ($class, $name) = shift;
   my $gensym = 0;
-  my @code;
   bless { parent  => undef,
           name    => $name,
           closure => {},
           gensym  => \$gensym,
-          code    => \@code,
+          code    => [],
           end     => undef }, $class;
 }
 
@@ -289,7 +289,7 @@ sub block
        ->child($name, "}");
 }
 
-sub if    { shift->block(if => @_) }
+sub if    { shift->block(if    => @_) }
 sub while { shift->block(while => @_) }
 sub end
 {
@@ -315,5 +315,28 @@ In the world of fibers and catalysts, a stream is just a thin wrapper around
 fiber state. It provides accessors to the fiber's availability flag vectors and
 manages state-sharing across the JIT boundary.
 
-```perl
+From an API perspective, though, streams represent logical data sources (or
+sinks), so let's talk about how that works for a minute.
+
+
+### Stream example: `cat`
+```pl
+my $catalyst = pushback::select_catalyst->new;
+my $stdin    = $catalyst->r(\*STDIN);
+my $stdout   = $catalyst->w(\*STDOUT);
+$stdin->into($stdout);                  # connect two streams
+$catalyst->loop;                        # run all connections
+```
+
+
+### Stream example: "what time is it" TCP server
+Pushback models TCP servers as streams of `($client, $paddr)` pairs, of which
+the important information is the `$client` socket datastream. So we have a
+stream of streams.
+
+```pl
+my $catalyst = pushback::select_catalyst->new;
+my $server   = $catalyst->tcp_server(3000, '0.0.0.0');
+
+
 ```
