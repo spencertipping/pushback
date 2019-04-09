@@ -27,6 +27,10 @@ use strict;
 use warnings;
 
 
+# Functional streams
+# TODO
+
+
 # JIT compiler object
 # Compiles code into the current runtime, sharing state across the compilation
 # boundary using lexical closure.
@@ -47,6 +51,9 @@ sub new
 sub compile
 {
   my $self  = shift;
+  die "$$self{name}: must compile the parent JIT context"
+    if defined $$self{parent};
+
   my @args  = sort keys %{$$self{shared}};
   my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
   my $code  = join"\n", "sub{", $setup, @{$$self{code}}, "}";
