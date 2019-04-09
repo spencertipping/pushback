@@ -1,0 +1,77 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my ($a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8) = (1, 1, 1, 1, 1, 1, 1, 0);
+
+my $string8    = "\x73";
+my $string64   = "\x73\0\0\0\0\0\0\0";
+my $string1024 = "\x73" . "\0" x 127;
+my $string2048 = "\x73" . "\0" x 255;
+
+my $mask8      = $string8;
+my $mask64     = $string64;
+my $mask1024   = $string1024;
+my $mask2048   = $string2048;
+
+timethese(1000000, {
+  eight_ints_short => sub
+  {
+    $a1 |= vec $string64, 8, 1;
+    $a2 |= vec $string64, 9, 1;
+    $a3 |= vec $string64, 10, 1;
+    $a4 |= vec $string64, 11, 1;
+    $a5 |= vec $string64, 12, 1;
+    $a6 |= vec $string64, 13, 1;
+    $a7 |= vec $string64, 14, 1;
+    $a8 |= vec $string64, 15, 1;
+    die if $a1 && $a2 && $a3 && $a4 && $a5 && $a6 && $a7 && $a8;
+  },
+
+  eight_ints_bitwise => sub
+  {
+    $a1 |= vec $string64, 8, 1;
+    $a2 |= vec $string64, 9, 1;
+    $a3 |= vec $string64, 10, 1;
+    $a4 |= vec $string64, 11, 1;
+    $a5 |= vec $string64, 12, 1;
+    $a6 |= vec $string64, 13, 1;
+    $a7 |= vec $string64, 14, 1;
+    $a8 |= vec $string64, 15, 1;
+    die if $a1 & $a2 & $a3 & $a4 & $a5 & $a6 & $a7 & $a8;
+  }
+}) if 0;
+
+
+timethese(10_000_000, {
+  string8 => sub
+  {
+    $string8 |= $mask8;
+    die if $string8 eq "\x74";
+  },
+
+  string64 => sub
+  {
+    $string64 |= $mask64;
+    die if $string64 eq "\x73\0\0\0\0\0\0\x01";
+  },
+
+  string1024 => sub
+  {
+    $string1024 |= $mask1024;
+    die if $string1024 eq "\x73" . "\0" x 126 . "\x01";
+  },
+
+  string1024_inv => sub
+  {
+    $string1024 |= ~$mask1024 & $mask1024;
+    die if $string1024 eq "\x73" . "\0" x 126 . "\x01";
+  },
+
+  string2048 => sub
+  {
+    $string2048 |= $mask2048;
+    die if $string2048 eq "\x73" . "\0" x 254 . "\x01";
+  }
+});
