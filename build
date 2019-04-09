@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 rm -f pushback.pm
-./unlit --perl pushback.md > pushback.pm
+./unlit --perl README.md > pushback.pm
 
 # The result is read-only because editing it is the wrong idea; you want to edit
 # the markdown source instead.
