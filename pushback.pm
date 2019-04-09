@@ -1,5 +1,5 @@
 # Pushback: flow control as control flow
-# Pushback is a fully negotiated IO multiplexer for Perl. See
+# Pushback is a fully negotiated IO/control multiplexer for Perl. See
 # https://github.com/spencertipping/pushback for details.
 
 # Copyright 2019 Spencer Tipping
