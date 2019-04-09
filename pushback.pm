@@ -1,6 +1,6 @@
-#line 3 "README.md"
-# Documentation at https://github.com/spencertipping/pushback.
-#
+# Pushback: flow control as control flow
+# Pushback is a fully negotiated IO multiplexer for Perl.
+
 # Copyright 2019 Spencer Tipping
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,3 +24,80 @@
 use v5.14;
 use strict;
 use warnings;
+
+
+# Closure-aware compiler
+# We need a compiler that makes it easy to drop shared references into the
+# resulting code.
+package pushback::compiler;
+sub new
+{
+  my ($class, $name) = shift;
+  my $gensym = 0;
+  bless { parent  => undef,
+          name    => $name,
+          closure => {},
+          gensym  => \$gensym,
+          code    => [],
+          end     => undef }, $class;
+}
+
+# Generating code and compiling the result
+sub gensym { "g" . ${shift->{gensym}}++ }
+sub code
+{
+  my $self = shift;
+  my $code = shift;
+  my %vars;
+  ${$$self{closure}}{$vars{+shift} = $self->gensym} = shift while @_ >= 2;
+  my $vars = join"|", keys %vars;
+  push @{$$self{code}},
+       keys(%vars) ? $code =~ s/\$($vars)/"\$" . ${$$self{scope}}{$1}/egr
+                   : $code;
+  $self;
+}
+
+sub compile
+{
+  my $self    = shift;
+  my @closure = sort keys %{$$self{closure}};
+  my $setup   = sprintf "my (%s) = \@_;", join",", map "\$$_", @closure;
+  my $code    = join"\n", "sub{", $setup, @{$$self{code}}, "}";
+  my $sub     = eval $code;
+  die "$@ compiling $code" if $@;
+  $sub->(@{$$self{closure}}{@closure});
+}
+
+# Specific macros
+sub mark
+{
+  my $self = shift;
+  $self->code("#line 1 \"$$self{name} @_\"");
+}
+
+sub if    { shift->block(if    => @_) }
+sub while { shift->block(while => @_) }
+sub block
+{
+  my $self = shift;
+  my $type = shift;
+  $self->code("$type(")->code(@_)->code("){")
+       ->child($name, "}");
+}
+
+# Sub-contexts, e.g. for individual branch blocks
+sub child
+{
+  my ($self, $name, $end) = @_;
+  bless { parent  => $self,
+          name    => "$$self{name} $name",
+          closure => $$self{closure},
+          gensym  => $$self{gensym},
+          code    => [],
+          end     => $end }, ref $self;
+}
+sub end
+{
+  my $self = shift;
+  $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
+}
