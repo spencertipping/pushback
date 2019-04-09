@@ -27,10 +27,6 @@ use strict;
 use warnings;
 
 
-# Functional streams
-# TODO
-
-
 # JIT compiler object
 # Compiles code into the current runtime, sharing state across the compilation
 # boundary using lexical closure.
@@ -38,7 +34,7 @@ use warnings;
 package pushback::jit;
 sub new
 {
-  my ($class, $name) = shift;
+  my ($class, $name) = @_;
   my $gensym = 0;
   bless { parent => undef,
           name   => $name,
@@ -56,7 +52,8 @@ sub compile
 
   my @args  = sort keys %{$$self{shared}};
   my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
-  my $code  = join"\n", "sub{", $setup, @{$$self{code}}, "}";
+  my $code  = join"\n", "use strict;use warnings;",
+                        "sub{", $setup, @{$$self{code}}, "}";
   my $sub   = eval $code;
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{shared}}{@args});
@@ -66,13 +63,11 @@ sub compile
 sub gensym { "g" . ${shift->{gensym}}++ }
 sub code
 {
-  my $self = shift;
-  my $code = shift;
-  my %vars;
-  ${$$self{shared}}{$vars{+shift} = $self->gensym} = shift while @_ >= 2;
-  my $vars = join"|", keys %vars;
-  push @{$$self{code}},
-       keys(%vars) ? $code =~ s/\$($vars)/"\$" . $vars{$1}/egr : $code;
+  my ($self, $code, %v) = (shift, shift);
+  $$self{shared}{$v{$_[0]} = $self->gensym} = \$_[1], shift, shift while @_;
+  if (keys %v) { my $vs = join"|", keys %v;
+                 $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg }
+  push @{$$self{code}}, $code;
   $self;
 }
 
@@ -86,10 +81,9 @@ sub if    { shift->block(if    => @_) }
 sub while { shift->block(while => @_) }
 sub block
 {
-  my $self = shift;
-  my $type = shift;
+  my ($self, $type) = (shift, shift);
   $self->code("$type(")->code(@_)->code("){")
-       ->child($name, "}");
+       ->child($type, "}");
 }
 
 # Parent/child linkage
@@ -108,3 +102,6 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
+
+
+1;
