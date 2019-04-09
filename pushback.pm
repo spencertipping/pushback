@@ -1,5 +1,6 @@
 # Pushback: flow control as control flow
-# Pushback is a fully negotiated IO multiplexer for Perl.
+# Pushback is a fully negotiated IO multiplexer for Perl. See
+# https://github.com/spencertipping/pushback for details.
 
 # Copyright 2019 Spencer Tipping
 #
@@ -26,55 +27,54 @@ use strict;
 use warnings;
 
 
-# Closure-aware compiler
-# We need a compiler that makes it easy to drop shared references into the
-# resulting code.
-package pushback::compiler;
+# JIT compiler object
+# Compiles code into the current runtime, sharing state across the compilation
+# boundary using lexical closure.
+
+package pushback::jit;
 sub new
 {
   my ($class, $name) = shift;
   my $gensym = 0;
-  bless { parent  => undef,
-          name    => $name,
-          closure => {},
-          gensym  => \$gensym,
-          code    => [],
-          end     => undef }, $class;
+  bless { parent => undef,
+          name   => $name,
+          shared => {},
+          gensym => \$gensym,
+          code   => [],
+          end    => undef }, $class;
 }
 
-# Generating code and compiling the result
+sub compile
+{
+  my $self  = shift;
+  my @args  = sort keys %{$$self{shared}};
+  my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
+  my $code  = join"\n", "sub{", $setup, @{$$self{code}}, "}";
+  my $sub   = eval $code;
+  die "$@ compiling $code" if $@;
+  $sub->(@{$$self{shared}}{@args});
+}
+
+# Code rewriting
 sub gensym { "g" . ${shift->{gensym}}++ }
 sub code
 {
   my $self = shift;
   my $code = shift;
   my %vars;
-  ${$$self{closure}}{$vars{+shift} = $self->gensym} = shift while @_ >= 2;
+  ${$$self{shared}}{$vars{+shift} = $self->gensym} = shift while @_ >= 2;
   my $vars = join"|", keys %vars;
   push @{$$self{code}},
-       keys(%vars) ? $code =~ s/\$($vars)/"\$" . ${$$self{scope}}{$1}/egr
-                   : $code;
+       keys(%vars) ? $code =~ s/\$($vars)/"\$" . $vars{$1}/egr : $code;
   $self;
 }
 
-sub compile
-{
-  my $self    = shift;
-  my @closure = sort keys %{$$self{closure}};
-  my $setup   = sprintf "my (%s) = \@_;", join",", map "\$$_", @closure;
-  my $code    = join"\n", "sub{", $setup, @{$$self{code}}, "}";
-  my $sub     = eval $code;
-  die "$@ compiling $code" if $@;
-  $sub->(@{$$self{closure}}{@closure});
-}
-
-# Specific macros
+# Macros
 sub mark
 {
   my $self = shift;
   $self->code("#line 1 \"$$self{name} @_\"");
 }
-
 sub if    { shift->block(if    => @_) }
 sub while { shift->block(while => @_) }
 sub block
@@ -85,7 +85,7 @@ sub block
        ->child($name, "}");
 }
 
-# Sub-contexts, e.g. for individual branch blocks
+# Parent/child linkage
 sub child
 {
   my ($self, $name, $end) = @_;
