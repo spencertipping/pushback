@@ -1,0 +1,17 @@
+#!/usr/bin/env perl
+BEGIN { push @INC, $0 =~ s/[^\/]*$/../r }
+use pushback;
+
+my $io = pushback::io->new;
+my $buf = "\0" x 65536;
+$io->read(\*STDIN)
+   ->write(\*STDOUT)
+   ->mux->add(fileno(STDIN), fileno(STDOUT), sub {
+       my ($r, $w, $in, $out) = @_;
+       sysread STDIN, $buf, 65536 or die "eof";
+       syswrite STDOUT, $buf;
+       vec($$r, $in, 1) = 0;
+       vec($$w, $out, 1) = 0;
+     });
+
+$io->mux->loop while $io->step;
