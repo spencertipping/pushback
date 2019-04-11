@@ -25,3 +25,7 @@ it.**
 Trivially, `source -> fn -> destination` seems reasonable; `fn` can contain
 subgraphs/etc. But how do we apply `fn` to every element of an array? We need to
 back it into an existing pattern like pooled execution.
+
+...put differently, `map(fn)` is a completely reasonable type of stream node.
+`map(_)` just locally modifies IO transaction boundaries, reassembling them on
+output.
