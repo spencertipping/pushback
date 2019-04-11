@@ -1,0 +1,29 @@
+#!/usr/bin/env perl
+BEGIN { push @INC, $0 =~ s/[^\/]*$/../r }
+use pushback;
+
+# Just like cat, but run data through an intermediate pipe for no reason.
+my $io = pushback::io_select->new;
+
+pipe my $r, my $w;
+
+$io->read(\*STDIN)->read($r)
+   ->write(\*STDOUT)->write($w);
+
+$io->mux->add(fileno(STDIN), fileno($w), sub {
+  my ($rv, $wv, $in, $out) = @_;
+  sysread STDIN, my $buf = "", 65536 or close $w;
+  syswrite $w, $buf;
+  vec($$rv, $in, 1) = 0;
+  vec($$wv, $out, 1) = 0;
+});
+
+$io->mux->add(fileno($r), fileno(STDOUT), sub {
+  my ($rv, $wv, $in, $out) = @_;
+  sysread $r, my $buf = "", 65536 or die "eof";
+  syswrite STDOUT, $buf;
+  vec($$rv, $in, 1) = 0;
+  vec($$wv, $out, 1) = 0;
+});
+
+eval {$io->mux->loop while $io->step};

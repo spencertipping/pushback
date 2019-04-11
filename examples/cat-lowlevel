@@ -14,4 +14,4 @@ $io->read(\*STDIN)
        vec($$w, $out, 1) = 0;
      });
 
-$io->mux->loop while $io->step;
+eval {$io->mux->loop while $io->step};

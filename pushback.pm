@@ -128,10 +128,8 @@ sub step
   for my $i (0..$#$fs)
   {
     my ($in, $out, $fn) = ($$is[$i], $$os[$i], $$fs[$i]);
-    my $e = undef;
-    ++$run, eval {&$fn($r, $w, $in, $out)}, $e //= $@
-      while not defined $e and vec $$r, $in, 1 and vec $$w, $out, 1;
-    push @errors, $i if defined $e or vec $$re, $in, 1 or vec $$we, $out, 1;
+    ++$run, &$fn($r, $w, $in, $out) while vec $$r, $in, 1 and vec $$w, $out, 1;
+    push @errors, $i if vec $$re, $in, 1 or vec $$we, $out, 1;
   }
 
   if (@errors)
