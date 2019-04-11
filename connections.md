@@ -45,4 +45,5 @@ back it into an existing pattern like pooled execution.
 
 ...put differently, `map(fn)` is a completely reasonable type of stream node.
 `map(_)` just locally modifies IO transaction boundaries, reassembling them on
-output.
+output. It's up to the stream API (or you) to recognize when `fn` doesn't
+introduce any negotiation points; in that case it can be inlined.
