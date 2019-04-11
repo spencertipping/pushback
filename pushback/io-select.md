@@ -1,6 +1,6 @@
 # IO selector
 ```perl
-package pushback::io;
+package pushback::io_select;
 
 sub new
 {

@@ -153,8 +153,8 @@ sub loop
   return 0 unless $self->step;
   1 while $self->step;
 }
-#line 3 "pushback/io.md"
-package pushback::io;
+#line 3 "pushback/io-select.md"
+package pushback::io_select;
 
 sub new
 {
