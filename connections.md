@@ -29,6 +29,15 @@ such tuple becomes a process.
 makes sense given that the source and destination are already known.
 
 
+## Streams are pairs of `(input-side, output-side)`
+...and build up the functions that connect those two things? Not sure yet.
+
+
+## Processes are flow paths
+You can multi-connect things if you want to, and it will behave exactly like
+shared file descriptors in Linux (but with customizable transaction boundaries).
+
+
 ## A webserver that serves files
 ```pl
 my $server_process = $io->(
