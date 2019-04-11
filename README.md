@@ -50,14 +50,9 @@ callback-driven IO system: buffers provide zero-impedance output capacity. The
 difference in our case is that we consider the output to be subsequently
 unavailable until its buffers are cleared.
 
-To formalize it, then, a transaction is a unit of side-effectful commitment that
-can't be undone.
 
+## Streams
+...are just objects that provide negotiated flow endpoints. `stdin`, `stdout`,
+and so forth are streams.
 
-## Streams: negotiated transaction flow domains
-`cat` issues a series of `read` calls against `stdin`; in functional terms,
-`stdin` supplies a series of transactions each containing one such buffer of
-data. If we want to read lines of text from `stdin`, we'll get a new stream with
-its own internal state and, importantly, its own supply impedance. The
-line-buffered version of `stdin` negotiates IO independently from its upstream
-supplier.
+**Q:** who manages the topology of stream connections?
