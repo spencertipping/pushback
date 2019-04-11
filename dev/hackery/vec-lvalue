@@ -1,0 +1,10 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use v5.14;
+
+my $bv = "\0";
+sub vresult():lvalue { vec $bv, 0, 1 }
+
+vresult = 1;
+print unpack("H*", $bv), "\n";
