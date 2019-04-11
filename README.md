@@ -1,5 +1,6 @@
 # Pushback: flow control as control flow
-**TODO:** summarize this
+Pushback is an IO and code multiplexer for Perl. It's sort of like a little
+operating system whose system call interface supports Perl values.
 
 
 ## Backpressure
@@ -49,10 +50,3 @@ arbitrary data expansion. Any given transaction, then, behaves like a
 callback-driven IO system: buffers provide zero-impedance output capacity. The
 difference in our case is that we consider the output to be subsequently
 unavailable until its buffers are cleared.
-
-
-## Streams
-...are just objects that provide negotiated flow endpoints. `stdin`, `stdout`,
-and so forth are streams.
-
-**Q:** who manages the topology of stream connections?

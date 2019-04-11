@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+
+rm -f pushback.pm
+{
+  cat pushback/header.pm
+  ./unlit --perl pushback.md
+  echo '1;'
+  echo '__END__'
+} > pushback.pm
+
+chmod 0444 pushback.pm
