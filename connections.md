@@ -21,6 +21,23 @@ multiplexer? That might simplify a lot of this.
 it.**
 
 
+## Subgraphs and inherited constraints
+A webserver that serves files:
+
+```pl
+my $io     = pushback::io;              # outer multiplexer
+my $server = $io->http_server(
+  pushback::stream                      # inner subgraph?
+    ->map(q{ shift->GET->url_path })
+    ->flatmap(q{ pushback::io->read(shift) }));
+
+$io->loop;
+```
+
+`flatmap` means something different in pushback. It isn't a time-domain
+construct; it's about modifying topologies.
+
+
 ## Virtual nodes
 Let's suppose the IO multiplexer has a stream that opens files: you write `open`
 arguments and read the negotiation endpoint. This will block if we're out of
