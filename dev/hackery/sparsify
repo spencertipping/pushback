@@ -20,10 +20,12 @@ my $vec_out        = join",", vec_sparsify_sloooow();
 my $unpack_out     = join",", unpack_q();
 my $regex_ord_out  = join",", regex_sparsify_ord_capture();
 my $regex_ordc_out = join",", regex_sparsify_ordc_loop();
+my $regex_ordb_out = join",", regex_sparsify_ord_boost();
 
 die "unpack: $unpack_out vs $vec_out"        unless $unpack_out eq $vec_out;
 die "regexord: $regex_ord_out vs $vec_out"   unless $regex_ord_out eq $vec_out;
 die "regexordc: $regex_ordc_out vs $vec_out" unless $regex_ordc_out eq $vec_out;
+die "regexordb: $regex_ordb_out vs $vec_out" unless $regex_ordb_out eq $vec_out;
 
 timethese 4000000, {
   bv_bitop   => \&bv_bitop,
@@ -35,6 +37,7 @@ timethese 100000, {
   unpack     => \&unpack_q,
   regex_ord  => \&regex_sparsify_ord_capture,
   regex_ordc => \&regex_sparsify_ordc_loop,
+  regex_ordb => \&regex_sparsify_ord_boost,
 };
 
 sub bv_bitop
@@ -58,6 +61,23 @@ sub regex_sparsify_ord_capture
     my $i = pos($bv) - 1 << 3;
     my $c = ord($1) << 1;
     ($c & 1 && push @r, $i), ++$i while $c >>= 1;
+  }
+  @r;
+}
+
+sub regex_sparsify_ord_boost
+{
+  my @r;
+  pos($bv) = 0;
+  while (defined pos $bv)
+  {
+    pos($bv) += 128 while substr($bv, pos($bv), 128) eq "\0" x 128;
+    while ($bv =~ /([^\0])/g)
+    {
+      my $i = pos($bv) - 1 << 3;
+      my $c = ord($1) << 1;
+      ($c & 1 && push @r, $i), ++$i while $c >>= 1;
+    }
   }
   @r;
 }
