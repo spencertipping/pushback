@@ -25,75 +25,6 @@
 use v5.14;
 use strict;
 use warnings;
-#line 6 "pushback/jit.md"
-package pushback::jit;
-sub new
-{
-  my ($class, $name) = @_;
-  my $gensym = 0;
-  bless { parent => undef,
-          name   => $name,
-          shared => {},
-          gensym => \$gensym,
-          code   => [],
-          end    => undef }, $class;
-}
-
-sub compile
-{
-  my $self  = shift;
-  die "$$self{name}: must compile the parent JIT context"
-    if defined $$self{parent};
-
-  my @args  = sort keys %{$$self{shared}};
-  my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
-  my $code  = join"\n", "use strict;use warnings;",
-                        "sub{", $setup, @{$$self{code}}, "}";
-  my $sub   = eval $code;
-  die "$@ compiling $code" if $@;
-  $sub->(@{$$self{shared}}{@args});
-}
-#line 37 "pushback/jit.md"
-sub gensym { "g" . ${shift->{gensym}}++ }
-sub code
-{
-  my ($self, $code, %v) = (shift, shift);
-  $$self{shared}{$v{$_[0]} = $self->gensym} = \$_[1], shift, shift while @_;
-  if (keys %v) { my $vs = join"|", keys %v;
-                 $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg }
-  push @{$$self{code}}, $code;
-  $self;
-}
-#line 51 "pushback/jit.md"
-sub mark
-{
-  my $self = shift;
-  $self->code("#line 1 \"$$self{name} @_\"");
-}
-sub if    { shift->block(if    => @_) }
-sub while { shift->block(while => @_) }
-sub block
-{
-  my ($self, $type) = (shift, shift);
-  $self->code("$type(")->code(@_)->code("){")
-       ->child($type, "}");
-}
-#line 68 "pushback/jit.md"
-sub child
-{
-  my ($self, $name, $end) = @_;
-  bless { parent  => $self,
-          name    => "$$self{name} $name",
-          closure => $$self{closure},
-          gensym  => $$self{gensym},
-          code    => [],
-          end     => $end }, ref $self;
-}
-sub end
-{
-  my $self = shift;
-  $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
-}
 #line 8 "pushback/mux.md"
 package pushback::mux;
 sub new
@@ -210,6 +141,85 @@ sub loop
   my $self = shift;
   $self->step;
   $self->step while $self->mux->loop;
+}
+#line 6 "pushback/jit.md"
+package pushback::jit;
+sub new
+{
+  my ($class, $name) = @_;
+  my $gensym = 0;
+  bless { parent => undef,
+          name   => $name,
+          shared => {},
+          gensym => \$gensym,
+          code   => [],
+          end    => undef }, $class;
+}
+
+sub compile
+{
+  my $self  = shift;
+  die "$$self{name}: must compile the parent JIT context"
+    if defined $$self{parent};
+
+  my @args  = sort keys %{$$self{shared}};
+  my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
+  my $code  = join"\n", "use strict;use warnings;",
+                        "sub{", $setup, @{$$self{code}}, "}";
+  my $sub   = eval $code;
+  die "$@ compiling $code" if $@;
+  $sub->(@{$$self{shared}}{@args});
+}
+#line 37 "pushback/jit.md"
+sub gensym { "g" . ${shift->{gensym}}++ }
+sub code
+{
+  my ($self, $code, %v) = (shift, shift);
+  $$self{shared}{$v{$_[0]} = $self->gensym} = \$_[1], shift, shift while @_;
+  if (keys %v) { my $vs = join"|", keys %v;
+                 $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg }
+  push @{$$self{code}}, $code;
+  $self;
+}
+#line 51 "pushback/jit.md"
+sub mark
+{
+  my $self = shift;
+  $self->code("#line 1 \"$$self{name} @_\"");
+}
+sub if    { shift->block(if    => @_) }
+sub while { shift->block(while => @_) }
+sub block
+{
+  my ($self, $type) = (shift, shift);
+  $self->code("$type(")->code(@_)->code("){")
+       ->child($type, "}");
+}
+#line 68 "pushback/jit.md"
+sub child
+{
+  my ($self, $name, $end) = @_;
+  bless { parent  => $self,
+          name    => "$$self{name} $name",
+          closure => $$self{closure},
+          gensym  => $$self{gensym},
+          code    => [],
+          end     => $end }, ref $self;
+}
+sub end
+{
+  my $self = shift;
+  $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
+}
+#line 3 "pushback/stream.md"
+package pushback::stream;
+use overload qw/ >> into /;
+sub new
+{
+  my ($class, $in, $out) = @_;
+  bless { in  => $in,
+          out => $out,
+          ops => [] }, $class;
 }
 1;
 __END__

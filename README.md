@@ -3,6 +3,11 @@ Pushback is an IO and code multiplexer for Perl. It's sort of like a little
 operating system whose system call interface supports Perl values.
 
 
+## Documentation
+See the [literate source code](pushback.md) and [tests as
+documentation](tests.md).
+
+
 ## Backpressure
 `cat` couples `stdin` and `stdout` by using the same process for both. Either
 can influence the IO rate of the other by delaying the process.
