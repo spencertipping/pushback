@@ -1,0 +1,78 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+# If we have a sparse bitvector, what's the fastest way to get a list of all set
+# bits? Let's say our vector is 1kB long.
+my $bv = "\0" x 1024;
+vec($bv, int rand(8192), 1) = 1 for 1..20;
+
+# Before we kick the test off, make sure our functions work the same way.
+my $vec_out         = join",", vec_sparsify_sloooow();
+my $unpack_out      = join",", unpack_q();
+my $regex_ord_out   = join",", regex_sparsify_ord_capture();
+my $regex_array_out = join",", regex_sparsify_unpack();
+
+#die "unpack: $unpack_out vs $vec_out"          unless $unpack_out eq $vec_out;
+die "regexord: $regex_ord_out vs $vec_out"     unless $regex_ord_out eq $vec_out;
+die "regexarray: $regex_array_out vs $vec_out" unless $regex_array_out eq $vec_out;
+
+timethese 100000, {
+  vec         => \&vec_sparsify_sloooow,
+  unpack      => \&unpack_q,
+  regex_ord   => \&regex_sparsify_ord_capture,
+  regex_array => \&regex_sparsify_unpack,
+};
+
+sub vec_sparsify_sloooow
+{
+  grep vec($bv, $_, 1), 0..8191;
+}
+
+sub unpack_q
+{
+  my @r;
+  my @qs = unpack 'Q<*' => $bv;
+  my $i = -64;
+  for (@qs)
+  {
+    $i += 64;
+    next unless $_;
+    $_ <<= 1;
+    while ($_ >>= 1)
+    {
+      push @r, $i if $_ & 1;
+      ++$i;
+    }
+  }
+  @r;
+}
+
+sub regex_sparsify_ord_capture
+{
+  my @r;
+  pos($bv) = 0;
+  while ($bv =~ /([^\0])/g)
+  {
+    my $i = pos($bv) - 1 << 3;
+    my $c = ord($1) << 1;
+    ($c & 1 && push @r, $i), ++$i while $c >>= 1;
+  }
+  @r;
+}
+
+sub regex_sparsify_unpack
+{
+  my @r;
+  pos($bv) = 0;
+  my @cs = unpack "C*" => $bv;
+  while ($bv =~ /[^\0]/g)
+  {
+    my $i = pos($bv) - 1;
+    my $c = $cs[$i] << 1;
+    $i <<= 3;
+    ($c & 1 && push @r, $i), ++$i while $c >>= 1;
+  }
+  @r;
+}
