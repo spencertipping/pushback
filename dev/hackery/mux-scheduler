@@ -13,25 +13,28 @@ use Benchmark qw/timethese/;
 # haystack.
 
 my $bv = "\0" x 1024;                   # rwe for 1024 files + 5120 virtuals
-my @ps = map [$_, map int(rand 8192), 0..int rand 4], 1..4096;
+my @ps = map [$_, map int(rand 8192), 0..int rand 4], 0..4095;
 
 my @bits = map @$_[1..$#$_], (sort {rand() <=> rand()} @ps)[0..4];
+vec($bv, $_, 1) = 1 for @bits;
 
-my @rtop = map [], 1..8192;
+my @rtop = map [], 0..8191;
+my @rtob = map "\0" x 512, 0..8191;
 for my $p (@ps)
 {
   my ($id, @rs) = @$p;
   push @{$rtop[$_]}, $id for @rs;
+  vec($rtob[$_], $id, 1) = 1 for @rs;
 }
 
-vec($bv, $_, 1) = 1 for @bits;
+my $ping_out   = join",", sort {$a <=> $b} map $$_[0], ping_each();
+my $index_out  = join",", sort {$a <=> $b} map $$_[0], index_check();
 
-my $ping_out  = join",", sort map $$_[0], ping_each();
-my $index_out = join",", sort map $$_[0], index_check();
+die "index: [$index_out] vs [$ping_out]" unless $index_out eq $ping_out;
 
 sub ping_each
 {
-  grep !grep(vec($bv, $_, 1), @$_[1..$#$_]), @ps;
+  grep !grep(!vec($bv, $_, 1), @$_[1..$#$_]), @ps;
 }
 
 sub index_check
@@ -46,7 +49,7 @@ sub index_check
     ($c & 1 && push @is, @{$rtop[$i]}), ++$i while $c >>= 1;
   }
 
-  grep !grep(vec($bv, $_, 1), @$_[1..$#$_]), @ps[grep !$u{$_}++, @is];
+  grep !grep(!vec($bv, $_, 1), @$_[1..$#$_]), @ps[grep !$u{$_}++, @is];
 }
 
 timethese 100000, {
