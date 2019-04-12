@@ -1,0 +1,15 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my %h = map +($_ => 0), 0..8191;
+my $v = "\0" x 1024;
+
+my @is = map int(rand 8192), 1..10;
+
+timethese 1_000_000, {
+  hash    => sub { my $i = 0; $i += $h{$_} for @is; $i },
+  hasharr => sub { my $i = 0; $i += $_ for @h{@is}; $i },
+  vec     => sub { my $i = 0; $i += vec $v, $_, 1 for @is; $i },
+};

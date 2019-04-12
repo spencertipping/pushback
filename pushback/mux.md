@@ -47,7 +47,6 @@ sub new
   my $class = shift;
   my $avail = \shift;
   my $error = \shift;
-
   bless { pid_usage      => "\0",
           process_fns    => [],
           process_deps   => [],
