@@ -18,12 +18,34 @@ my $regex_array_out = join",", regex_sparsify_unpack();
 die "regexord: $regex_ord_out vs $vec_out"     unless $regex_ord_out eq $vec_out;
 die "regexarray: $regex_array_out vs $vec_out" unless $regex_array_out eq $vec_out;
 
+timethese 10000000, {
+  bv_bitop => \&bv_bitop,
+};
+
 timethese 100000, {
-  vec         => \&vec_sparsify_sloooow,
+  #vec         => \&vec_sparsify_sloooow,
   unpack      => \&unpack_q,
   regex_ord   => \&regex_sparsify_ord_capture,
   regex_array => \&regex_sparsify_unpack,
 };
+
+sub bv_bitop
+{
+  $bv |= $bv;
+}
+
+sub regex_sparsify_ord_capture
+{
+  my @r;
+  pos($bv) = 0;
+  while ($bv =~ /([^\0])/g)
+  {
+    my $i = pos($bv) - 1 << 3;
+    my $c = ord($1) << 1;
+    ($c & 1 && push @r, $i), ++$i while $c >>= 1;
+  }
+  @r;
+}
 
 sub vec_sparsify_sloooow
 {
@@ -45,19 +67,6 @@ sub unpack_q
       push @r, $i if $_ & 1;
       ++$i;
     }
-  }
-  @r;
-}
-
-sub regex_sparsify_ord_capture
-{
-  my @r;
-  pos($bv) = 0;
-  while ($bv =~ /([^\0])/g)
-  {
-    my $i = pos($bv) - 1 << 3;
-    my $c = ord($1) << 1;
-    ($c & 1 && push @r, $i), ++$i while $c >>= 1;
   }
   @r;
 }
