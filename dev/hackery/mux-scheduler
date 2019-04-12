@@ -1,0 +1,58 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+# Figure out how the process multiplexer should schedule things. We'll have a
+# list of processes, each with a list of resources it depends on. Some resources
+# are always going to be bitvectors (like fds), but virtual resources can be
+# encoded however we want them to be.
+#
+# In normal usage we'll have a few thousand processes, almost none of which are
+# runnable at any moment in time. The goal is to find the needles in the
+# haystack.
+
+my $bv = "\0" x 1024;                   # rwe for 1024 files + 5120 virtuals
+my @ps = map [$_, map int(rand 8192), 0..int rand 4], 1..4096;
+
+my @bits = map @$_[1..$#$_], (sort {rand() <=> rand()} @ps)[0..4];
+
+my @rtop = map [], 1..8192;
+for my $p (@ps)
+{
+  my ($id, @rs) = @$p;
+  push @{$rtop[$_]}, $id for @rs;
+}
+
+vec($bv, $_, 1) = 1 for @bits;
+
+my $ping_out  = join",", sort map $$_[0], ping_each();
+my $index_out = join",", sort map $$_[0], index_check();
+
+sub ping_each
+{
+  grep !grep(vec($bv, $_, 1), @$_[1..$#$_]), @ps;
+}
+
+sub index_check
+{
+  my %u;
+  my @is;
+  pos($bv) = undef;
+  while ($bv =~ /([^\0])/g)
+  {
+    my $i = pos($bv) - 1 << 3;
+    my $c = ord($1) << 1;
+    ($c & 1 && push @is, @{$rtop[$i]}), ++$i while $c >>= 1;
+  }
+
+  grep !grep(vec($bv, $_, 1), @$_[1..$#$_]), @ps[grep !$u{$_}++, @is];
+}
+
+timethese 100000, {
+  index => \&index_check,
+};
+
+timethese 10000, {
+  ping  => \&ping_each,
+};
