@@ -43,29 +43,154 @@ sub pushback::bit_indexes
   }
   @r;
 }
-#line 7 "pushback/mux.md"
+#line 6 "pushback/jit.md"
+package pushback::jit;
+our $gensym = 0;
+
+sub new
+{
+  my ($class, $name) = @_;
+  bless { parent => undef,
+          name   => $name,
+          shared => {},
+          refs   => {},
+          code   => [],
+          end    => "" }, $class;
+}
+
+sub compile
+{
+  my $self  = shift;
+  die "$$self{name}: must compile the parent JIT context"
+    if defined $$self{parent};
+
+  my @args  = sort keys %{$$self{shared}};
+  my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
+  my $code  = join"\n", "use strict;use warnings;",
+                        "sub{", $setup, @{$$self{code}}, "}";
+  my $sub   = eval $code;
+  die "$@ compiling $code" if $@;
+  $sub->(@{$$self{shared}}{@args});
+}
+#line 38 "pushback/jit.md"
+sub gensym { "g" . $gensym++ }
+sub code
+{
+  my ($self, $code) = (shift, shift);
+  if (ref $code && $code->isa('pushback::jit'))
+  {
+    %{$$self{shared}} = (%{$$self{shared}}, %{$$code{shared}});
+    push @{$$self{code}}, join"\n", @{$$code{code}}, $$code{end};
+  }
+  else
+  {
+    my %v;
+    while (@_)
+    {
+      $$self{shared}
+            {$v{$_[0]} = $$self{refs}{\$_[1]} //= $self->gensym} = \$_[1];
+      shift;
+      shift;
+    }
+    if (keys %v)
+    {
+      my $vs = join"|", keys %v;
+      $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg;
+    }
+    push @{$$self{code}}, $code;
+  }
+  $self;
+}
+#line 70 "pushback/jit.md"
+sub mark
+{
+  my $self = shift;
+  $self->code("#line 1 \"$$self{name} @_\"");
+}
+sub if    { shift->block(if    => @_) }
+sub while { shift->block(while => @_) }
+sub block
+{
+  my ($self, $type) = (shift, shift);
+  $self->code("$type(")->code(@_)->code("){")
+       ->child($type, "}");
+}
+#line 87 "pushback/jit.md"
+sub child
+{
+  my ($self, $name, $end) = @_;
+  bless { parent  => $self,
+          name    => "$$self{name} $name",
+          closure => $$self{closure},
+          code    => [],
+          end     => $end // "" }, ref $self;
+}
+
+sub end
+{
+  my $self = shift;
+  $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
+}
+#line 11 "pushback/mux.md"
+package pushback::process;
+sub new
+{
+  my ($class, $fn, @deps) = @_;
+  bless { fn   => $fn,
+          time => 0,
+          n    => 0,
+          deps => \@deps }, $class;
+}
+
+sub fn
+{
+  my $self = shift;
+  my $jit = pushback::jit->new
+    ->code('use Time::HiRes qw/time/;')
+    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
+
+  ref $$self{fn} eq "CODE"
+    ? $jit->code('&$f();', f => $$self{fn})
+    : $jit->code($$self{fn});
+
+  $jit->code('$t += time();', t => $$self{time})
+      ->compile;
+}
+#line 44 "pushback/mux.md"
 package pushback::mux;
 sub new
 {
   my $class = shift;
-  bless { inputs  => [],
-          outputs => [],
-          fns     => [],
-          rvec    => \$_[0],
-          wvec    => \$_[1],
-          revec   => \$_[2],
-          wevec   => \$_[3] }, $class;
+  my $avail = \shift;
+  my $error = \shift;
+
+  bless { pid_usage      => "\0",
+          process_fns    => [],
+          process_deps   => [],
+          resource_index => [],
+          resource_avail => $avail,
+          resource_error => $error }, $class;
 }
 
-sub add
+sub next_free_pid
 {
-  # TODO: come up with a stable process identifier; array indexes aren't stable
-  my ($self, $in, $out, $fn) = @_;
-  push @{$$self{inputs}}, $in;
-  push @{$$self{outputs}}, $out;
-  push @{$$self{fns}}, $fn;
+  my $self = shift;
+  pos($$self{pid_usage}) = 0;
+  if ($$self{pid_usage} =~ /([^\xff])/g)
+  {
+    my $i = pos($$self{pid_usage}) - 1 << 3;
+    my $c = ord $1;
+    ++$i, $c >>= 1 while $c & 1;
+    $i;
+  }
+  else
+  {
+    length($$self{pid_usage}) << 3;
+  }
 }
-#line 33 "pushback/mux.md"
+
+
+#line 82 "pushback/mux.md"
 sub step
 {
   my $self = shift;
@@ -159,75 +284,6 @@ sub loop
   my $self = shift;
   $self->step;
   $self->step while $self->mux->loop;
-}
-#line 6 "pushback/jit.md"
-package pushback::jit;
-sub new
-{
-  my ($class, $name) = @_;
-  my $gensym = 0;
-  bless { parent => undef,
-          name   => $name,
-          shared => {},
-          gensym => \$gensym,
-          code   => [],
-          end    => undef }, $class;
-}
-
-sub compile
-{
-  my $self  = shift;
-  die "$$self{name}: must compile the parent JIT context"
-    if defined $$self{parent};
-
-  my @args  = sort keys %{$$self{shared}};
-  my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
-  my $code  = join"\n", "use strict;use warnings;",
-                        "sub{", $setup, @{$$self{code}}, "}";
-  my $sub   = eval $code;
-  die "$@ compiling $code" if $@;
-  $sub->(@{$$self{shared}}{@args});
-}
-#line 37 "pushback/jit.md"
-sub gensym { "g" . ${shift->{gensym}}++ }
-sub code
-{
-  my ($self, $code, %v) = (shift, shift);
-  $$self{shared}{$v{$_[0]} = $self->gensym} = \$_[1], shift, shift while @_;
-  if (keys %v) { my $vs = join"|", keys %v;
-                 $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg }
-  push @{$$self{code}}, $code;
-  $self;
-}
-#line 51 "pushback/jit.md"
-sub mark
-{
-  my $self = shift;
-  $self->code("#line 1 \"$$self{name} @_\"");
-}
-sub if    { shift->block(if    => @_) }
-sub while { shift->block(while => @_) }
-sub block
-{
-  my ($self, $type) = (shift, shift);
-  $self->code("$type(")->code(@_)->code("){")
-       ->child($type, "}");
-}
-#line 68 "pushback/jit.md"
-sub child
-{
-  my ($self, $name, $end) = @_;
-  bless { parent  => $self,
-          name    => "$$self{name} $name",
-          closure => $$self{closure},
-          gensym  => $$self{gensym},
-          code    => [],
-          end     => $end }, ref $self;
-}
-sub end
-{
-  my $self = shift;
-  $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
 #line 3 "pushback/stream.md"
 package pushback::stream;

@@ -4,16 +4,17 @@ boundary using lexical closure.
 
 ```perl
 package pushback::jit;
+our $gensym = 0;
+
 sub new
 {
   my ($class, $name) = @_;
-  my $gensym = 0;
   bless { parent => undef,
           name   => $name,
           shared => {},
-          gensym => \$gensym,
+          refs   => {},
           code   => [],
-          end    => undef }, $class;
+          end    => "" }, $class;
 }
 
 sub compile
@@ -34,14 +35,32 @@ sub compile
 
 ## Code rewriting
 ```perl
-sub gensym { "g" . ${shift->{gensym}}++ }
+sub gensym { "g" . $gensym++ }
 sub code
 {
-  my ($self, $code, %v) = (shift, shift);
-  $$self{shared}{$v{$_[0]} = $self->gensym} = \$_[1], shift, shift while @_;
-  if (keys %v) { my $vs = join"|", keys %v;
-                 $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg }
-  push @{$$self{code}}, $code;
+  my ($self, $code) = (shift, shift);
+  if (ref $code && $code->isa('pushback::jit'))
+  {
+    %{$$self{shared}} = (%{$$self{shared}}, %{$$code{shared}});
+    push @{$$self{code}}, join"\n", @{$$code{code}}, $$code{end};
+  }
+  else
+  {
+    my %v;
+    while (@_)
+    {
+      $$self{shared}
+            {$v{$_[0]} = $$self{refs}{\$_[1]} //= $self->gensym} = \$_[1];
+      shift;
+      shift;
+    }
+    if (keys %v)
+    {
+      my $vs = join"|", keys %v;
+      $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg;
+    }
+    push @{$$self{code}}, $code;
+  }
   $self;
 }
 ```
@@ -71,10 +90,10 @@ sub child
   bless { parent  => $self,
           name    => "$$self{name} $name",
           closure => $$self{closure},
-          gensym  => $$self{gensym},
           code    => [],
-          end     => $end }, ref $self;
+          end     => $end // "" }, ref $self;
 }
+
 sub end
 {
   my $self = shift;

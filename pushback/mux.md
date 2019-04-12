@@ -1,30 +1,79 @@
-# Multiplexer
-Maintains a list of processes and schedules them according to resource
-availability. This class holds references to resource vectors, but doesn't
-manage or modify them.
+# Pushback micro-processes
+Pushback is driven by a low-latency scheduler that negotiates dependencies and
+figures out which processes can be run at any given moment.
+
+
+## Process object
+This interfaces with the multiplexer state but otherwise isn't involved in
+scheduling.
+
+```perl
+package pushback::process;
+sub new
+{
+  my ($class, $fn, @deps) = @_;
+  bless { fn   => $fn,
+          time => 0,
+          n    => 0,
+          deps => \@deps }, $class;
+}
+
+sub fn
+{
+  my $self = shift;
+  my $jit = pushback::jit->new
+    ->code('use Time::HiRes qw/time/;')
+    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
+
+  ref $$self{fn} eq "CODE"
+    ? $jit->code('&$f();', f => $$self{fn})
+    : $jit->code($$self{fn});
+
+  $jit->code('$t += time();', t => $$self{time})
+      ->compile;
+}
+```
+
+
+## Multiplexer
+This is where scheduling happens. The multiplexer holds two vector references:
+one for resource availability and one for resource error.
+
 
 ```perl
 package pushback::mux;
 sub new
 {
   my $class = shift;
-  bless { inputs  => [],
-          outputs => [],
-          fns     => [],
-          rvec    => \$_[0],
-          wvec    => \$_[1],
-          revec   => \$_[2],
-          wevec   => \$_[3] }, $class;
+  my $avail = \shift;
+  my $error = \shift;
+
+  bless { pid_usage      => "\0",
+          process_fns    => [],
+          process_deps   => [],
+          resource_index => [],
+          resource_avail => $avail,
+          resource_error => $error }, $class;
 }
 
-sub add
+sub next_free_pid
 {
-  # TODO: come up with a stable process identifier; array indexes aren't stable
-  my ($self, $in, $out, $fn) = @_;
-  push @{$$self{inputs}}, $in;
-  push @{$$self{outputs}}, $out;
-  push @{$$self{fns}}, $fn;
+  my $self = shift;
+  pos($$self{pid_usage}) = 0;
+  if ($$self{pid_usage} =~ /([^\xff])/g)
+  {
+    my $i = pos($$self{pid_usage}) - 1 << 3;
+    my $c = ord $1;
+    ++$i, $c >>= 1 while $c & 1;
+    $i;
+  }
+  else
+  {
+    length($$self{pid_usage}) << 3;
+  }
 }
+
+
 ```
 
 

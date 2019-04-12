@@ -2,12 +2,12 @@
 Quick table of contents:
 
 - [Internal bits](pushback/bits.md)
+- [JIT compiler](pushback/jit.md)
 
 Main pieces:
 
 - [Process multiplexer](pushback/mux.md)
 - [IO selector](pushback/io-select.md)
-- [JIT compiler](pushback/jit.md)
 - [Stream API](pushback/stream.md)
 
 
