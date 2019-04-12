@@ -1,8 +1,7 @@
 # Multiplexer
 Maintains a list of processes and schedules them according to resource
-availability.
-
-**TODO:** optimize this a lot
+availability. This class holds references to resource vectors, but doesn't
+manage or modify them.
 
 ```perl
 package pushback::mux;

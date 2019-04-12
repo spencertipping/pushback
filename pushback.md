@@ -1,6 +1,10 @@
 # Pushback
 Quick table of contents:
 
+- [Internal bits](pushback/bits.md)
+
+Main pieces:
+
 - [Process multiplexer](pushback/mux.md)
 - [IO selector](pushback/io-select.md)
 - [JIT compiler](pushback/jit.md)
@@ -9,15 +13,7 @@ Quick table of contents:
 
 ## Multiplexer
 Pushback is built around a [process multiplexer](pushback/mux.md) that manages a
-series of Perl code functions. Each such function defines two resource
-dependencies and will run when (and while) those dependencies are available:
-
-```pl
-my $process = [$input_dependency, $output_dependency, sub { ... }];
-```
-
-**TODO:** this spec is wrong; multiplexers should probably support any number of
-resources per process.
+series of Perl code functions.
 
 
 ## IO

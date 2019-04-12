@@ -25,7 +25,25 @@
 use v5.14;
 use strict;
 use warnings;
-#line 8 "pushback/mux.md"
+#line 8 "pushback/bits.md"
+sub pushback::bit_indexes
+{
+  my @r;
+  local $_ = shift;
+  pos() = undef;
+  while (/([^\0])/g)
+  {
+    my $i = pos() - 1 << 3;
+    my $c = ord $1;
+    do
+    {
+      push @r, $i if $c & 1;
+      ++$i;
+    } while $c >>= 1;
+  }
+  @r;
+}
+#line 7 "pushback/mux.md"
 package pushback::mux;
 sub new
 {
@@ -47,7 +65,7 @@ sub add
   push @{$$self{outputs}}, $out;
   push @{$$self{fns}}, $fn;
 }
-#line 34 "pushback/mux.md"
+#line 33 "pushback/mux.md"
 sub step
 {
   my $self = shift;
