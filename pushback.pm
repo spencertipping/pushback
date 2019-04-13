@@ -83,11 +83,12 @@ sub compile
   my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
   my $code  = join"\n", "use strict;use warnings;",
                         "sub{", $setup, @{$$self{code}}, "}";
-  my $sub   = eval $code;
+
+  my $sub = eval $code;
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{shared}}{@args});
 }
-#line 48 "pushback/jit.md"
+#line 49 "pushback/jit.md"
 sub gensym { "g" . $gensym++ }
 sub code
 {
@@ -116,7 +117,7 @@ sub code
   }
   $self;
 }
-#line 80 "pushback/jit.md"
+#line 81 "pushback/jit.md"
 sub mark
 {
   my $self = shift;
@@ -130,7 +131,7 @@ sub block
   $self->code("$type(")->code(@_)->code("){")
        ->child($type, "}");
 }
-#line 97 "pushback/jit.md"
+#line 98 "pushback/jit.md"
 sub child
 {
   my ($self, $name, $end) = @_;
@@ -146,7 +147,65 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
-#line 11 "pushback/mux.md"
+#line 6 "pushback/process.md"
+package pushback::process;
+sub new
+{
+  my ($class, $fn, @deps) = @_;
+  bless { fn    => $fn,
+          time  => 0,
+          n     => 0,
+          mux   => undef,
+          pid   => undef,
+          error => undef,
+          deps  => [grep defined, @deps] }, $class;
+}
+
+sub pid     { shift->{pid} }
+sub running { defined shift->{pid} }
+sub deps    { @{shift->{deps}} }
+#line 27 "pushback/process.md"
+sub kill
+{
+  my $self = shift;
+  die "process is not managed by a multiplexer" unless defined $$self{mux};
+  die "process is not running (has no PID)" unless defined $$self{pid};
+  $$self{mux}->remove($$self{pid});
+  $self;
+}
+#line 43 "pushback/process.md"
+sub fn
+{
+  my $self = shift;
+  my $jit = pushback::jit->new
+    ->code('sub {')
+    ->code('use Time::HiRes qw/time/;')
+    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
+
+  ref $$self{fn} eq "CODE"
+    ? $jit->code('&$f();', f => $$self{fn})
+    : $jit->code($$self{fn});
+
+  $jit->code('$t += time();', t => $$self{time})
+      ->code('}')
+      ->compile;
+}
+#line 64 "pushback/process.md"
+sub set_pid
+{
+  my $self = shift;
+  $$self{mux} = shift;
+  $$self{pid} = shift;
+  $self;
+}
+
+sub fail
+{
+  my $self = shift;
+  $$self{error} = shift;
+  $self->kill;
+}
+#line 13 "pushback/mux.md"
 package pushback::mux;
 sub new
 {
@@ -165,7 +224,7 @@ sub new
 }
 
 sub running { unpack "%32b*", shift->{pid_usage} }
-#line 34 "pushback/mux.md"
+#line 36 "pushback/mux.md"
 sub add
 {
   my ($self, $p) = @_;
@@ -174,9 +233,13 @@ sub add
   push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
   push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
 
+  my @deps = $p->deps;
+  die "no dependencies defined for $p; if you try to run this, it will create "
+    . "a tight CPU loop and lock up your multiplexer" unless @deps;
+
   $$self{processes}[$pid]    = $p;
   $$self{process_fns}[$pid]  = $p->fn;
-  $$self{process_deps}[$pid] = [$p->deps];
+  $$self{process_deps}[$pid] = \@deps;
 
   $self->update_index($pid);
   vec($$self{pid_usage}, $pid, 1) = 1;
@@ -197,7 +260,7 @@ sub remove
   vec($$self{pid_usage}, $pid, 1) = 0;
   $p->set_pid($self => undef);
 }
-#line 74 "pushback/mux.md"
+#line 80 "pushback/mux.md"
 use constant EMPTY => [];
 sub update_index
 {
@@ -207,7 +270,7 @@ sub update_index
   $$ri[$_] = [grep $_ != $pid, @{$$ri[$_] // EMPTY}] for @_;
   push @{$$ri[$_] //= []}, $pid for @{$$self{process_deps}[$pid]};
 }
-#line 88 "pushback/mux.md"
+#line 94 "pushback/mux.md"
 sub step
 {
   my $self  = shift;
@@ -442,63 +505,6 @@ sub step
   $$self{multiplexer}->step;
   $self;
 }
-#line 6 "pushback/process.md"
-package pushback::process;
-sub new
-{
-  my ($class, $fn, @deps) = @_;
-  bless { fn    => $fn,
-          time  => 0,
-          n     => 0,
-          mux   => undef,
-          pid   => undef,
-          error => undef,
-          deps  => \@deps }, $class;
-}
-
-sub running { defined shift->{pid} }
-sub deps    { @{shift->{deps}} }
-#line 26 "pushback/process.md"
-sub kill
-{
-  my $self = shift;
-  die "process is not managed by a multiplexer" unless defined $$self{mux};
-  die "process is not running (has no PID)" unless defined $$self{pid};
-  $$self{mux}->remove($$self{pid});
-  $self;
-}
-#line 42 "pushback/process.md"
-sub fn
-{
-  my $self = shift;
-  my $jit = pushback::jit->new
-    ->code('sub {')
-    ->code('use Time::HiRes qw/time/;')
-    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
-
-  ref $$self{fn} eq "CODE"
-    ? $jit->code('&$f();', f => $$self{fn})
-    : $jit->code($$self{fn});
-
-  $jit->code('$t += time();', t => $$self{time})
-      ->code('}')
-      ->compile;
-}
-#line 63 "pushback/process.md"
-sub set_pid
-{
-  my $self = shift;
-  $$self{mux} = shift;
-  $$self{pid} = shift;
-  $self;
-}
-
-sub fail
-{
-  my $self = shift;
-  $$self{error} = shift;
-  $self->kill;
-}
 #line 5 "pushback/stream.md"
 package pushback::stream;
 use overload qw/ >> into /;
@@ -506,11 +512,7 @@ use overload qw/ >> into /;
 sub io  { shift->{io} }
 sub in  { shift->{in} }
 sub out { shift->{out} }
-sub deps
-{
-  my $self = shift;
-  grep defined, @$self{qw/ in out /};
-}
+sub deps { grep defined, @{+shift}{qw/ in out /} }
 
 sub jit_read_op  { die "unimplemented JIT read op for $_[0]" }
 sub jit_write_op { die "unimplemented JIT write op for $_[0]" }
@@ -524,7 +526,29 @@ sub into
   $dest->jit_write_op($jit, \@data);
   pushback::process->new($jit, $$self{in}, $$dest{out});
 }
-#line 34 "pushback/stream.md"
+#line 5 "pushback/callback-stream.md"
+package pushback::callback_stream;
+push our @ISA, 'pushback::stream';
+
+sub pushback::io::each
+{
+  my ($io, $fn) = @_;
+  pushback::callback_stream->new($io, $fn);
+}
+
+sub new
+{
+  my ($class, $io, $fn) = @_;
+  bless { io => $io,
+          fn => $fn }, $class;
+}
+
+sub jit_write_op
+{
+  my ($self, $jit, $data) = @_;
+  $jit->code(q{ &$fn(@$data); }, fn => $$self{fn}, data => $data);
+}
+#line 3 "pushback/file-stream.md"
 package pushback::fd_stream;
 push our @ISA, 'pushback::stream';
 
@@ -590,6 +614,65 @@ sub jit_write_op
                     write_bit => $$write_bit,
                     err_bit   => $$err_bit,
                     data      => $data);
+}
+#line 3 "pushback/tcpserver-stream.md"
+package pushback::tcp_stream;
+push our @ISA, 'pushback::stream';
+
+use Socket;
+
+sub pushback::io::tcp_server
+{
+  my ($io, $port, $host) = @_;
+  pushback::tcp_stream->listen($io, $port, $host);
+}
+
+sub listen
+{
+  my ($class, $io, $port, $host) = @_;
+  $host //= 'localhost';
+  socket  my $s, PF_INET, SOCK_STREAM, getprotobyname 'tcp' or die $!;
+  setsockopt $s, SOL_SOCKET, SO_REUSEADDR, pack l => 1      or die $!;
+  bind       $s, pack_sockaddr_in $port, inet_aton $host    or die $!;
+  listen     $s, SOMAXCONN                                  or die $!;
+
+  bless { io   => $io,
+          in   => fileno $s,
+          out  => undef,
+          sock => $s,
+          r    => $io->read($s),
+          host => $host,
+          port => $port }, $class;
+}
+
+sub jit_read_op
+{
+  my ($self, $jit, $data) = @_;
+  my $read_bit = \vec ${$$self{io}{avail}}, $$self{in}, 1;
+  my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
+  my $code =
+  q{
+    @$data = (undef, undef, undef);
+    if ($read_bit)
+    {
+      $$data[2] = accept $$data[0], $sock;
+      $read_bit = 0;
+      defined $$data[2] or die $!;
+      $$data[1] = $io->write($$data[0]);
+      $$data[0] = $io->read($$data[0]);
+    }
+    else
+    {
+      $$data[2] = accept undef, $sock;
+      $err_bit = 0;
+    }
+  };
+
+  $jit->code($code, sock     => $$self{sock},
+                    io       => $$self{io},
+                    read_bit => $$read_bit,
+                    err_bit  => $$err_bit,
+                    data     => $data);
 }
 1;
 __END__

@@ -12,6 +12,12 @@ Public API:
 - [Process object](pushback/process.md)
 - [Stream API](pushback/stream.md)
 
+Specific types of streams:
+
+- [Callback streams](pushback/callback-stream.md)
+- [File streams](pushback/file-stream.md)
+- [TCP server streams](pushback/tcpserver-stream.md)
+
 
 ## Multiplexer
 Pushback is built around a [process multiplexer](pushback/mux.md) that manages a

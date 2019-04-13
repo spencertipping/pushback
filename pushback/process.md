@@ -13,9 +13,10 @@ sub new
           mux   => undef,
           pid   => undef,
           error => undef,
-          deps  => \@deps }, $class;
+          deps  => [grep defined, @deps] }, $class;
 }
 
+sub pid     { shift->{pid} }
 sub running { defined shift->{pid} }
 sub deps    { @{shift->{deps}} }
 ```

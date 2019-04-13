@@ -1,0 +1,69 @@
+# File streams
+```perl
+package pushback::fd_stream;
+push our @ISA, 'pushback::stream';
+
+sub reader
+{
+  my ($class, $io, $fd, $resource) = @_;
+  bless { io  => $io,
+          fd  => $fd,
+          in  => $resource,
+          out => undef }, $class;
+}
+
+sub writer
+{
+  my ($class, $io, $fd, $resource) = @_;
+  bless { io  => $io,
+          fd  => $fd,
+          in  => undef,
+          out => $resource }, $class;
+}
+
+sub jit_read_op
+{
+  my ($self, $jit, $data) = @_;
+  my $read_bit = \vec ${$$self{io}{avail}}, $$self{in}, 1;
+  my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
+  my $code =
+  q{
+    sysread($fh, $$data[0] //= "", 65536) or $$data[0] = undef;
+    close $fh if $err_bit;
+    $read_bit = 0;
+  };
+
+  $jit->code($code, fh       => $$self{io}->file($$self{fd}),
+                    read_bit => $$read_bit,
+                    err_bit  => $$err_bit,
+                    data     => $data);
+}
+
+sub jit_write_op
+{
+  my ($self, $jit, $data) = @_;
+  my $write_bit = \vec ${$$self{io}{avail}}, $$self{out}, 1;
+  my $err_bit   = \vec ${$$self{io}{error}}, $$self{out}, 1;
+
+  # TODO: buffer for incomplete writes; this involves allocating a virtual
+  # resource for buffer writability.
+  my $code =
+  q{
+    if (!$err_bit && defined $$data[0])
+    {
+      defined(syswrite $fh, $$data[0]) or die $!;
+      $write_bit = 0;
+    }
+    else
+    {
+      close $fh;
+      die;
+    }
+  };
+
+  $jit->code($code, fh        => $$self{io}->file($$self{fd}),
+                    write_bit => $$write_bit,
+                    err_bit   => $$err_bit,
+                    data      => $data);
+}
+```

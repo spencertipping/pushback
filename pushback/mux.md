@@ -1,6 +1,8 @@
 # Pushback micro-processes
 Pushback is driven by a low-latency scheduler that negotiates dependencies and
-figures out which processes can be run at any given moment.
+figures out which processes can be run at any given moment. There are two parts
+involved here: the multiplexer (defined below) and the [process
+object](process.md) to interface with things while they're live.
 
 
 ## Multiplexer
@@ -39,9 +41,13 @@ sub add
   push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
   push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
 
+  my @deps = $p->deps;
+  die "no dependencies defined for $p; if you try to run this, it will create "
+    . "a tight CPU loop and lock up your multiplexer" unless @deps;
+
   $$self{processes}[$pid]    = $p;
   $$self{process_fns}[$pid]  = $p->fn;
-  $$self{process_deps}[$pid] = [$p->deps];
+  $$self{process_deps}[$pid] = \@deps;
 
   $self->update_index($pid);
   vec($$self{pid_usage}, $pid, 1) = 1;

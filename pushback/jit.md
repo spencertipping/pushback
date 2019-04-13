@@ -37,7 +37,8 @@ sub compile
   my $setup = sprintf "my (%s) = \@_;", join",", map "\$$_", @args;
   my $code  = join"\n", "use strict;use warnings;",
                         "sub{", $setup, @{$$self{code}}, "}";
-  my $sub   = eval $code;
+
+  my $sub = eval $code;
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{shared}}{@args});
 }
