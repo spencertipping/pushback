@@ -29,11 +29,10 @@ use warnings;
 sub pushback::bit_indexes
 {
   my @r;
-  local $_ = shift;
-  pos() = undef;
-  while (/([^\0])/g)
+  pos($_[0]) = undef;
+  while ($_[0] =~ /([^\0])/g)
   {
-    my $i = pos() - 1 << 3;
+    my $i = pos($_[0]) - 1 << 3;
     my $c = ord $1;
     do
     {
