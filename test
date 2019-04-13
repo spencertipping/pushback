@@ -3,4 +3,4 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 ./build
-./lazytest `find . -name '*.md'` | bash
+dev/lazytest `find . -name '*.md'` | bash
