@@ -2,6 +2,23 @@
 An object that manages resource availability/error vectors for real file
 descriptors, virtual resources, and timers.
 
+
+## Negotiation
+Flow points with in/out exchange negotiation around `offer` and `ask`-style
+things. I think both `ask` and `offer` are hard commitments, promising capacity
+for the corresponding `read`/`write`. They provide upper bounds.
+
+Each process/object is notified per connection to the flow network. This means
+the flow network has no idea which things are connected to which other things.
+
+Something like this in terms of API:
+
+- `read($n, $data)` -> `offered` | `ok($n)` | `eof` | `fail($error)`
+- `write($n, $data)` -> `offered` | `ok($n)` | `fail($error)`
+
+
+## TODO: reduce the scope of stuff below
+
 ```perl
 package pushback::io;
 use overload qw/ << add /;

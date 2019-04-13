@@ -315,7 +315,7 @@ sub step
 
   $self;
 }
-#line 6 "pushback/io.md"
+#line 23 "pushback/io.md"
 package pushback::io;
 use overload qw/ << add /;
 use Time::HiRes qw/time/;
@@ -381,7 +381,7 @@ sub select_loop
   }
   $self;
 }
-#line 76 "pushback/io.md"
+#line 93 "pushback/io.md"
 sub read
 {
   my ($self, $f) = @_;
@@ -409,14 +409,14 @@ sub file
   my ($self, $fd) = @_;
   $$self{files}[$fd];
 }
-#line 108 "pushback/io.md"
+#line 125 "pushback/io.md"
 sub add
 {
   my ($self, $p) = @_;
   $$self{multiplexer}->add($p);
   $self;
 }
-#line 121 "pushback/io.md"
+#line 138 "pushback/io.md"
 sub create_virtual
 {
   my $self  = shift;
@@ -434,12 +434,12 @@ sub delete_virtual
   vec($$self{virtual_usage}, $id - $$self{virtual_offset}, 1) = 0;
   $self;
 }
-#line 143 "pushback/io.md"
+#line 160 "pushback/io.md"
 sub time_to_next
 {
   undef;          # TODO
 }
-#line 162 "pushback/io.md"
+#line 179 "pushback/io.md"
 sub select_args
 {
   my $self = shift;
