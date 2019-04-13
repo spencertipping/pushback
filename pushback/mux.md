@@ -3,66 +3,6 @@ Pushback is driven by a low-latency scheduler that negotiates dependencies and
 figures out which processes can be run at any given moment.
 
 
-## Process object
-This interfaces with the multiplexer state but otherwise isn't involved in
-scheduling. You could create these objects directly, but `mux->when(@deps, $f)`
-will do it for you.
-
-```perl
-package pushback::process;
-sub new
-{
-  my ($class, $mux, $fn, @deps) = @_;
-  bless { fn    => $fn,
-          time  => 0,
-          n     => 0,
-          mux   => $mux,
-          pid   => undef,
-          error => undef,
-          deps  => \@deps }, $class;
-}
-
-sub set_pid
-{
-  my $self = shift;
-  $$self{pid} = shift;
-  $self;
-}
-
-sub kill
-{
-  my $self = shift;
-  die "process is not running (has no PID)" unless defined $$self{pid};
-  $$self{mux}->remove($$self{pid});
-  $self;
-}
-
-sub fail
-{
-  my $self = shift;
-  $$self{error} = shift;
-  $self->kill;
-}
-
-sub fn
-{
-  my $self = shift;
-  my $jit = pushback::jit->new
-    ->code('sub {')
-    ->code('use Time::HiRes qw/time/;')
-    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
-
-  ref $$self{fn} eq "CODE"
-    ? $jit->code('&$f();', f => $$self{fn})
-    : $jit->code($$self{fn});
-
-  $jit->code('$t += time();', t => $$self{time})
-      ->code('}')
-      ->compile;
-}
-```
-
-
 ## Multiplexer
 This is where scheduling happens. The multiplexer holds two vector references:
 one for resource availability and one for resource error.
@@ -78,6 +18,7 @@ sub new
           process_fns    => [],
           process_deps   => [],
           processes      => [],
+          run_hints      => [],
           check_errors   => 0,
           resource_index => [],
           resource_avail => $avail,
@@ -86,21 +27,9 @@ sub new
 ```
 
 
-### Process API
-```perl
-sub when
-{
-  my $self = shift;
-  my $fn   = pop;
-  die "processes must be predicated on at least one resource ID" unless @_;
-  $self->add_process(pushback::process->new($self, $fn, @_));
-}
-```
-
-
 ### Process management
 ```perl
-sub add_process
+sub add
 {
   my ($self, $p) = @_;
   my $pid = $self->next_free_pid;
@@ -114,10 +43,10 @@ sub add_process
 
   $self->update_index($pid);
   vec($$self{pid_usage}, $pid, 1) = 1;
-  $p->set_pid($pid);
+  $p->set_pid($self => $pid);
 }
 
-sub remove_process
+sub remove
 {
   my ($self, $pid) = @_;
   my $p    = $$self{processes}[$pid];
@@ -129,7 +58,7 @@ sub remove_process
 
   $self->update_index($pid, @$deps);
   vec($$self{pid_usage}, $pid, 1) = 0;
-  $p->set_pid(undef);
+  $p->set_pid($self => undef);
 }
 
 sub next_free_pid
@@ -149,6 +78,10 @@ sub next_free_pid
   }
 }
 ```
+
+
+## JIT insertion points
+**TODO**
 
 
 ## Resource indexing

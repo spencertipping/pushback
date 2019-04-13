@@ -1,13 +1,14 @@
 # Pushback
-Quick table of contents:
+Quick table of contents, starting with the internals:
 
 - [Internal bits](pushback/bits.md)
 - [JIT compiler](pushback/jit.md)
-
-Main pieces:
-
 - [Process multiplexer](pushback/mux.md)
 - [IO selector](pushback/io-select.md)
+
+Public API:
+
+- [Process object](pushback/process.md)
 - [Stream API](pushback/stream.md)
 
 

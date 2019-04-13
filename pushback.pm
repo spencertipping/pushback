@@ -130,59 +130,7 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
-#line 12 "pushback/mux.md"
-package pushback::process;
-sub new
-{
-  my ($class, $mux, $fn, @deps) = @_;
-  bless { fn    => $fn,
-          time  => 0,
-          n     => 0,
-          mux   => $mux,
-          pid   => undef,
-          error => undef,
-          deps  => \@deps }, $class;
-}
-
-sub set_pid
-{
-  my $self = shift;
-  $$self{pid} = shift;
-  $self;
-}
-
-sub kill
-{
-  my $self = shift;
-  die "process is not running (has no PID)" unless defined $$self{pid};
-  $$self{mux}->remove($$self{pid});
-  $self;
-}
-
-sub fail
-{
-  my $self = shift;
-  $$self{error} = shift;
-  $self->kill;
-}
-
-sub fn
-{
-  my $self = shift;
-  my $jit = pushback::jit->new
-    ->code('sub {')
-    ->code('use Time::HiRes qw/time/;')
-    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
-
-  ref $$self{fn} eq "CODE"
-    ? $jit->code('&$f();', f => $$self{fn})
-    : $jit->code($$self{fn});
-
-  $jit->code('$t += time();', t => $$self{time})
-      ->code('}')
-      ->compile;
-}
-#line 71 "pushback/mux.md"
+#line 11 "pushback/mux.md"
 package pushback::mux;
 sub new
 {
@@ -193,21 +141,14 @@ sub new
           process_fns    => [],
           process_deps   => [],
           processes      => [],
+          run_hints      => [],
           check_errors   => 0,
           resource_index => [],
           resource_avail => $avail,
           resource_error => $error }, $class;
 }
-#line 91 "pushback/mux.md"
-sub when
-{
-  my $self = shift;
-  my $fn   = pop;
-  die "processes must be predicated on at least one resource ID" unless @_;
-  $self->add_process(pushback::process->new($self, $fn, @_));
-}
-#line 103 "pushback/mux.md"
-sub add_process
+#line 32 "pushback/mux.md"
+sub add
 {
   my ($self, $p) = @_;
   my $pid = $self->next_free_pid;
@@ -221,10 +162,10 @@ sub add_process
 
   $self->update_index($pid);
   vec($$self{pid_usage}, $pid, 1) = 1;
-  $p->set_pid($pid);
+  $p->set_pid($self => $pid);
 }
 
-sub remove_process
+sub remove
 {
   my ($self, $pid) = @_;
   my $p    = $$self{processes}[$pid];
@@ -236,7 +177,7 @@ sub remove_process
 
   $self->update_index($pid, @$deps);
   vec($$self{pid_usage}, $pid, 1) = 0;
-  $p->set_pid(undef);
+  $p->set_pid($self => undef);
 }
 
 sub next_free_pid
@@ -255,7 +196,7 @@ sub next_free_pid
     length($$self{pid_usage}) << 3;
   }
 }
-#line 156 "pushback/mux.md"
+#line 89 "pushback/mux.md"
 use constant EMPTY => [];
 sub update_index
 {
@@ -265,7 +206,7 @@ sub update_index
   $$ri[$_] = [grep $_ != $pid, @{$$ri[$_] // EMPTY}] for @_;
   push @{$$ri[$_] //= []}, $pid for @{$$self{process_deps}[$pid]};
 }
-#line 170 "pushback/mux.md"
+#line 103 "pushback/mux.md"
 sub step
 {
   my $self = shift;
@@ -357,6 +298,60 @@ sub loop
   my $self = shift;
   $self->step;
   $self->step while $self->mux->loop;
+}
+#line 6 "pushback/process.md"
+package pushback::process;
+sub when
+{
+  my ($class, $fn, @deps) = @_;
+  bless { fn    => $fn,
+          time  => 0,
+          n     => 0,
+          mux   => undef,
+          pid   => undef,
+          error => undef,
+          deps  => \@deps }, $class;
+}
+#line 23 "pushback/process.md"
+sub kill
+{
+  my $self = shift;
+  die "process is not managed by a multiplexer" unless defined $$self{mux};
+  die "process is not running (has no PID)" unless defined $$self{pid};
+  $$self{mux}->remove($$self{pid});
+  $self;
+}
+#line 39 "pushback/process.md"
+sub fn
+{
+  my $self = shift;
+  my $jit = pushback::jit->new
+    ->code('sub {')
+    ->code('use Time::HiRes qw/time/;')
+    ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
+
+  ref $$self{fn} eq "CODE"
+    ? $jit->code('&$f();', f => $$self{fn})
+    : $jit->code($$self{fn});
+
+  $jit->code('$t += time();', t => $$self{time})
+      ->code('}')
+      ->compile;
+}
+#line 60 "pushback/process.md"
+sub set_pid
+{
+  my $self = shift;
+  $$self{mux} = shift;
+  $$self{pid} = shift;
+  $self;
+}
+
+sub fail
+{
+  my $self = shift;
+  $$self{error} = shift;
+  $self->kill;
 }
 #line 3 "pushback/stream.md"
 package pushback::stream;

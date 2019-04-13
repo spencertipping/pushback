@@ -10,35 +10,42 @@ use Benchmark qw/timethese/;
 my $bv = "\0" x 1024;
 vec($bv, int rand(8192), 1) = 1 for 1..20;
 
+my @qvs = map \vec($bv, $_, 64), 0..127;
+my @cvs = map \vec($bv, $_, 8),  0..1023;
+
 my @qs = unpack 'Q>*', $bv;
 my @cs = unpack 'C*', $bv;
 
 # Before we kick the test off, make sure our functions work the same way.
 my $vec_out        = join",", vec_sparsify_sloooow();
 my $unpack_out     = join",", unpack_q();
+my $vecscan_out    = join",", vec_scan();
 my $regex_ord_out  = join",", regex_sparsify_ord_capture();
 my $regex_ordc_out = join",", regex_sparsify_ordc_loop();
 my $regex_ordb_out = join",", regex_sparsify_ord_boost();
 my $substr_out     = join",", substr_scan();
 
 die "unpack: $unpack_out vs $vec_out"        unless $unpack_out eq $vec_out;
-die "substr: $substr_out vs $vec_out"        unless $substr_out eq $vec_out;
+#die "substr: $substr_out vs $vec_out"        unless $substr_out eq $vec_out;
+die "vecscan: $vecscan_out vs $vec_out"      unless $vecscan_out eq $vec_out;
 die "regexord: $regex_ord_out vs $vec_out"   unless $regex_ord_out eq $vec_out;
 die "regexordc: $regex_ordc_out vs $vec_out" unless $regex_ordc_out eq $vec_out;
 die "regexordb: $regex_ordb_out vs $vec_out" unless $regex_ordb_out eq $vec_out;
 
-timethese 4000000, {
+timethese 10_000_000, {
   bv_bitop   => \&bv_bitop,
 };
 
 timethese 100000, {
   #vec         => \&vec_sparsify_sloooow,
-  bv_vecread => \&bv_vecread,
-  unpack     => \&unpack_q,
-  substr     => \&substr_scan,
-  regex_ord  => \&regex_sparsify_ord_capture,
-  regex_ordc => \&regex_sparsify_ordc_loop,
-  regex_ordb => \&regex_sparsify_ord_boost,
+  bv_packread => \&bv_packread,
+  bv_vecread  => \&bv_vecread,
+  unpack      => \&unpack_q,
+  substr      => \&substr_scan,
+  vecscan     => \&vec_scan,
+  regex_ord   => \&regex_sparsify_ord_capture,
+  regex_ordc  => \&regex_sparsify_ordc_loop,
+  regex_ordb  => \&regex_sparsify_ord_boost,
 };
 
 sub bv_bitop
@@ -46,11 +53,44 @@ sub bv_bitop
   $bv |= $bv;
 }
 
-sub bv_vecread
+sub bv_packread
 {
   my $t = 0;
   $t += $_ for @qs;
   $t;
+}
+
+sub bv_vecread
+{
+  my $t = 0;
+  $t += $$_ for @qvs;
+  $t;
+}
+
+sub vec_scan
+{
+  my @r;
+  my $i = 0;
+  my $i64 = 0;
+  my $limit = 0;
+  my $q;
+  my $c;
+  my $j = 0;
+  while ($i < 128)
+  {
+    $i++ while $i < 128 && !($q = ${$qvs[$i]});
+    $i64 = $i << 6;
+    ++$i;
+    for ($j = 0; $q; $j += 8, $q <<= 8)
+    {
+      if ($c = $q >> 55)
+      {
+        $j &= -1 << 3;
+        ($c & 1 && push @r, $i64 | $j), ++$j while $c >>= 1;
+      }
+    }
+  }
+  @r;
 }
 
 sub regex_sparsify_ord_capture
