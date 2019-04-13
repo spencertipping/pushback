@@ -24,6 +24,8 @@ sub new
           resource_avail => $avail,
           resource_error => $error }, $class;
 }
+
+sub running { unpack "%32b*", shift->{pid_usage} }
 ```
 
 

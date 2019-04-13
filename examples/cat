@@ -10,9 +10,4 @@ my $io   = pushback::io->new;
 my $copy = $io->read(\*STDIN) >> $io->write(\*STDOUT);
 $io << $copy;
 
-while ($copy->running)
-{
-  my ($r, $w, $e, $timeout) = $io->select_args;
-  select $$r, $$w, $$e, $timeout;
-  $io->step;
-}
+$io->select_loop;

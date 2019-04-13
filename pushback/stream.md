@@ -59,13 +59,14 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    sysread($fh, $$data[0] //= "", 65536) or die $!;
+    sysread($fh, $$data[0] //= "", 65536) or $$data[0] = undef;
+    close $fh if $err_bit;
     $read_bit = 0;
   };
 
   $jit->code($code, fh       => $$self{io}->file($$self{fd}),
-                    buf      => $$self{buf},
                     read_bit => $$read_bit,
+                    err_bit  => $$err_bit,
                     data     => $data);
 }
 
@@ -79,12 +80,21 @@ sub jit_write_op
   # resource for buffer writability.
   my $code =
   q{
-    defined(syswrite $fh, $$data[0]) or die $!;
-    $write_bit = 0;
+    if (!$err_bit && defined $$data[0])
+    {
+      defined(syswrite $fh, $$data[0]) or die $!;
+      $write_bit = 0;
+    }
+    else
+    {
+      close $fh;
+      die;
+    }
   };
 
   $jit->code($code, fh        => $$self{io}->file($$self{fd}),
                     write_bit => $$write_bit,
+                    err_bit   => $$err_bit,
                     data      => $data);
 }
 ```

@@ -163,7 +163,9 @@ sub new
           resource_avail => $avail,
           resource_error => $error }, $class;
 }
-#line 32 "pushback/mux.md"
+
+sub running { unpack "%32b*", shift->{pid_usage} }
+#line 34 "pushback/mux.md"
 sub add
 {
   my ($self, $p) = @_;
@@ -195,7 +197,7 @@ sub remove
   vec($$self{pid_usage}, $pid, 1) = 0;
   $p->set_pid($self => undef);
 }
-#line 72 "pushback/mux.md"
+#line 74 "pushback/mux.md"
 use constant EMPTY => [];
 sub update_index
 {
@@ -205,7 +207,7 @@ sub update_index
   $$ri[$_] = [grep $_ != $pid, @{$$ri[$_] // EMPTY}] for @_;
   push @{$$ri[$_] //= []}, $pid for @{$$self{process_deps}[$pid]};
 }
-#line 86 "pushback/mux.md"
+#line 88 "pushback/mux.md"
 sub step
 {
   my $self  = shift;
@@ -338,7 +340,20 @@ sub new
           fd_wbuf => "\0" x $fdset_bytes,
           fd_ebuf => "\0" x $fdset_bytes }, $class;
 }
-#line 48 "pushback/io.md"
+
+sub running { shift->{multiplexer}->running }
+sub select_loop
+{
+  my $self = shift;
+  while ($self->running)
+  {
+    my ($r, $w, $e, $timeout) = $self->select_args;
+    select $$r, $$w, $$e, $timeout;
+    $self->step;
+  }
+  $self;
+}
+#line 61 "pushback/io.md"
 sub read
 {
   my ($self, $f) = @_;
@@ -362,14 +377,14 @@ sub file
   my ($self, $fd) = @_;
   $$self{files}[$fd];
 }
-#line 76 "pushback/io.md"
+#line 89 "pushback/io.md"
 sub add
 {
   my ($self, $p) = @_;
   $$self{multiplexer}->add($p);
   $self;
 }
-#line 89 "pushback/io.md"
+#line 102 "pushback/io.md"
 sub create_virtual
 {
   my $self  = shift;
@@ -387,12 +402,12 @@ sub delete_virtual
   vec($$self{virtual_usage}, $id - $$self{virtual_offset}, 1) = 0;
   $self;
 }
-#line 111 "pushback/io.md"
+#line 124 "pushback/io.md"
 sub time_to_next
 {
   undef;          # TODO
 }
-#line 130 "pushback/io.md"
+#line 143 "pushback/io.md"
 sub select_args
 {
   my $self = shift;
@@ -538,13 +553,14 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    sysread($fh, $$data[0] //= "", 65536) or die $!;
+    sysread($fh, $$data[0] //= "", 65536) or $$data[0] = undef;
+    close $fh if $err_bit;
     $read_bit = 0;
   };
 
   $jit->code($code, fh       => $$self{io}->file($$self{fd}),
-                    buf      => $$self{buf},
                     read_bit => $$read_bit,
+                    err_bit  => $$err_bit,
                     data     => $data);
 }
 
@@ -558,12 +574,21 @@ sub jit_write_op
   # resource for buffer writability.
   my $code =
   q{
-    defined(syswrite $fh, $$data[0]) or die $!;
-    $write_bit = 0;
+    if (!$err_bit && defined $$data[0])
+    {
+      defined(syswrite $fh, $$data[0]) or die $!;
+      $write_bit = 0;
+    }
+    else
+    {
+      close $fh;
+      die;
+    }
   };
 
   $jit->code($code, fh        => $$self{io}->file($$self{fd}),
                     write_bit => $$write_bit,
+                    err_bit   => $$err_bit,
                     data      => $data);
 }
 1;

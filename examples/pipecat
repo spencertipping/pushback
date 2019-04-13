@@ -14,9 +14,4 @@ my $copy2 = $io->read($r) >> $io->write(\*STDOUT);
 $io << $copy1
     << $copy2;
 
-while ($copy1->running && $copy2->running)
-{
-  my ($r, $w, $e, $timeout) = $io->select_args;
-  select $$r, $$w, $$e, $timeout;
-  $io->step;
-}
+$io->select_loop;

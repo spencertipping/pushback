@@ -40,6 +40,19 @@ sub new
           fd_wbuf => "\0" x $fdset_bytes,
           fd_ebuf => "\0" x $fdset_bytes }, $class;
 }
+
+sub running { shift->{multiplexer}->running }
+sub select_loop
+{
+  my $self = shift;
+  while ($self->running)
+  {
+    my ($r, $w, $e, $timeout) = $self->select_args;
+    select $$r, $$w, $$e, $timeout;
+    $self->step;
+  }
+  $self;
+}
 ```
 
 
