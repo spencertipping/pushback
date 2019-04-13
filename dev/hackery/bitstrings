@@ -2,14 +2,19 @@
 use strict;
 use warnings;
 use Benchmark qw/timethese/;
+no warnings 'portable';
 
 my ($a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8) = (1, 1, 1, 1, 1, 1, 1, 0);
 
+my $int8       = 0x73;
+my $int64      = 0x73000000_00000000;
 my $string8    = "\x73";
 my $string64   = "\x73\0\0\0\0\0\0\0";
 my $string1024 = "\x73" . "\0" x 127;
 my $string2048 = "\x73" . "\0" x 255;
 
+my $mint8      = $int8;
+my $mint64     = $int64;
 my $mask8      = $string8;
 my $mask64     = $string64;
 my $mask1024   = $string1024;
@@ -45,6 +50,18 @@ timethese(1000000, {
 
 
 timethese(10_000_000, {
+  int8 => sub
+  {
+    $int8 |= $mint8;
+    die if $int8 == 0x74;
+  },
+
+  int64 => sub
+  {
+    $int64 |= $mint64;
+    die if $int64 == 0x74000000_00000000;
+  },
+
   string8 => sub
   {
     $string8 |= $mask8;
