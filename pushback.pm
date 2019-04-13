@@ -43,7 +43,7 @@ sub pushback::bit_indexes
   }
   @r;
 }
-#line 6 "pushback/jit.md"
+#line 16 "pushback/jit.md"
 package pushback::jit;
 our $gensym = 0;
 
@@ -72,7 +72,7 @@ sub compile
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{shared}}{@args});
 }
-#line 38 "pushback/jit.md"
+#line 48 "pushback/jit.md"
 sub gensym { "g" . $gensym++ }
 sub code
 {
@@ -101,7 +101,7 @@ sub code
   }
   $self;
 }
-#line 70 "pushback/jit.md"
+#line 80 "pushback/jit.md"
 sub mark
 {
   my $self = shift;
@@ -115,7 +115,7 @@ sub block
   $self->code("$type(")->code(@_)->code("){")
        ->child($type, "}");
 }
-#line 87 "pushback/jit.md"
+#line 97 "pushback/jit.md"
 sub child
 {
   my ($self, $name, $end) = @_;

@@ -2,6 +2,16 @@
 Compiles code into the current runtime, sharing state across the compilation
 boundary using lexical closure.
 
+For example:
+
+```bash
+$ perl -I. -Mpushback \
+       -e 'my $x = 10;
+           pushback::jit->new->code(q{ $y++ }, y => $x)->compile;
+           print "$x\n"'
+11
+```
+
 ```perl
 package pushback::jit;
 our $gensym = 0;

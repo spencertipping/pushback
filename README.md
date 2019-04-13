@@ -4,8 +4,10 @@ operating system whose system call interface supports Perl values.
 
 
 ## Documentation
-See the [literate source code](pushback.md) and [tests as
-documentation](tests.md).
+See the [literate source code](pushback.md) for all the gory details as well as
+an architectural overview.
+
+[MIT license as usual.](LICENSE.md)
 
 
 ## Backpressure

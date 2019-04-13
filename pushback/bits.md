@@ -23,3 +23,11 @@ sub pushback::bit_indexes
   @r;
 }
 ```
+
+For example:
+
+```bash
+$ perl -I. -Mpushback \
+       -e 'print join(",", pushback::bit_indexes "\x81\x00\x1c"), "\n"'
+0,7,18,19,20
+```
