@@ -16,3 +16,11 @@ Specific types of streams:
 - [Callback streams](pushback/callback-stream.md)
 - [File streams](pushback/file-stream.md)
 - [TCP server streams](pushback/tcpserver-stream.md)
+
+
+```perl
+package pushback;
+use Exporter qw/import/;
+use constant io => pushback::io::->new;
+our @EXPORT = our @EXPORT_OK = qw/io/;
+```

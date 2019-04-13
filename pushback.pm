@@ -664,5 +664,10 @@ sub jit_read_op
                     err_bit  => $$err_bit,
                     data     => $data);
 }
+#line 22 "pushback.md"
+package pushback;
+use Exporter qw/import/;
+use constant io => pushback::io::->new;
+our @EXPORT = our @EXPORT_OK = qw/io/;
 1;
 __END__

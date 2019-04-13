@@ -8,10 +8,9 @@ use pushback;
 
 pipe my $r, my $w or die $!;
 
-my $io    = pushback::io->new;
-my $copy1 = $io->read(\*STDIN) >> $io->write($w);
-my $copy2 = $io->read($r) >> $io->write(\*STDOUT);
-$io << $copy1
-    << $copy2;
+my $copy1 = io->read(\*STDIN) >> io->write($w);
+my $copy2 = io->read($r) >> io->write(\*STDOUT);
+io << $copy1
+   << $copy2;
 
-$io->select_loop;
+io->select_loop;

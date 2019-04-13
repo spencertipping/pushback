@@ -1,5 +1,5 @@
 # Stream API
-Streams wrap IO resource identifiers.
+Streams generate JIT-compiled processes run by a multiplexer.
 
 ```perl
 package pushback::stream;

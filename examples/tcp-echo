@@ -6,11 +6,10 @@ no warnings 'void';
 BEGIN { push @INC, $0 =~ s#[^/]*$#..#r }
 use pushback;
 
-my $io = pushback::io->new;
-$io << ($io->tcp_server(8080) >> $io->each(sub {
+io << (io->tcp_server(8080) >> io->each(sub {
   my ($reader, $writer, $paddr, $err) = @_;
   print STDERR "connection, err = $err\n";
-  $io << ($reader >> $writer) if $paddr;
+  io << ($reader >> $writer) if $paddr;
 }));
 
-$io->select_loop;
+io->select_loop;

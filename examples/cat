@@ -6,8 +6,7 @@ no warnings 'void';
 BEGIN { push @INC, $0 =~ s#[^/]*$#..#r }
 use pushback;
 
-my $io   = pushback::io->new;
-my $copy = $io->read(\*STDIN) >> $io->write(\*STDOUT);
-$io << $copy;
+my $copy = io->read(\*STDIN) >> io->write(\*STDOUT);
+io << $copy;
 
-$io->select_loop;
+io->select_loop;
