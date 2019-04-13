@@ -1,0 +1,10 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use v5.14;
+
+my $str = "\0" x 100;
+my $sub = \substr $str, 96;
+printf "length(sub) = %d\n", length $$sub;
+$str .= "\0" x 28;
+printf "length(sub) = %d\n", length $$sub;

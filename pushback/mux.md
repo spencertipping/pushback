@@ -32,7 +32,7 @@ sub new
 sub add
 {
   my ($self, $p) = @_;
-  my $pid = $self->next_free_pid;
+  my $pid = pushback::next_free_bit($$self{pid_usage});
 
   push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
   push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
@@ -60,23 +60,6 @@ sub remove
   vec($$self{pid_usage}, $pid, 1) = 0;
   $p->set_pid($self => undef);
 }
-
-sub next_free_pid
-{
-  my $self = shift;
-  pos($$self{pid_usage}) = 0;
-  if ($$self{pid_usage} =~ /([^\xff])/g)
-  {
-    my $i = pos($$self{pid_usage}) - 1 << 3;
-    my $c = ord $1;
-    ++$i, $c >>= 1 while $c & 1;
-    $i;
-  }
-  else
-  {
-    length($$self{pid_usage}) << 3;
-  }
-}
 ```
 
 
@@ -102,7 +85,7 @@ sub update_index
 ```perl
 sub step
 {
-  my $self = shift;
+  my $self  = shift;
   my $deps  = $$self{process_deps};
   my $fns   = $$self{process_fns};
   my $avail = $$self{resource_avail};

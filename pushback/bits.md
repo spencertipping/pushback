@@ -30,3 +30,23 @@ $ perl -I. -Mpushback \
        -e 'print join(",", pushback::bit_indexes "\x81\x00\x1c"), "\n"'
 0,7,18,19,20
 ```
+
+
+## Resource sets
+```perl
+sub pushback::next_zero_bit
+{
+  pos($_[0]) = 0;
+  if ($_[0] =~ /([^\xff])/g)
+  {
+    my $i = pos($_[0]) - 1 << 3;
+    my $c = ord $1;
+    ++$i, $c >>= 1 while $c & 1;
+    $i;
+  }
+  else
+  {
+    length($_[0]) << 3;
+  }
+}
+```

@@ -4,7 +4,7 @@ scheduling.
 
 ```perl
 package pushback::process;
-sub when
+sub new
 {
   my ($class, $fn, @deps) = @_;
   bless { fn    => $fn,

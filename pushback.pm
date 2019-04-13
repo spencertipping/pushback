@@ -42,6 +42,22 @@ sub pushback::bit_indexes
   }
   @r;
 }
+#line 37 "pushback/bits.md"
+sub pushback::next_zero_bit
+{
+  pos($_[0]) = 0;
+  if ($_[0] =~ /([^\xff])/g)
+  {
+    my $i = pos($_[0]) - 1 << 3;
+    my $c = ord $1;
+    ++$i, $c >>= 1 while $c & 1;
+    $i;
+  }
+  else
+  {
+    length($_[0]) << 3;
+  }
+}
 #line 16 "pushback/jit.md"
 package pushback::jit;
 our $gensym = 0;
@@ -151,7 +167,7 @@ sub new
 sub add
 {
   my ($self, $p) = @_;
-  my $pid = $self->next_free_pid;
+  my $pid = pushback::next_free_bit($$self{pid_usage});
 
   push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
   push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
@@ -179,24 +195,7 @@ sub remove
   vec($$self{pid_usage}, $pid, 1) = 0;
   $p->set_pid($self => undef);
 }
-
-sub next_free_pid
-{
-  my $self = shift;
-  pos($$self{pid_usage}) = 0;
-  if ($$self{pid_usage} =~ /([^\xff])/g)
-  {
-    my $i = pos($$self{pid_usage}) - 1 << 3;
-    my $c = ord $1;
-    ++$i, $c >>= 1 while $c & 1;
-    $i;
-  }
-  else
-  {
-    length($$self{pid_usage}) << 3;
-  }
-}
-#line 89 "pushback/mux.md"
+#line 72 "pushback/mux.md"
 use constant EMPTY => [];
 sub update_index
 {
@@ -206,10 +205,10 @@ sub update_index
   $$ri[$_] = [grep $_ != $pid, @{$$ri[$_] // EMPTY}] for @_;
   push @{$$ri[$_] //= []}, $pid for @{$$self{process_deps}[$pid]};
 }
-#line 103 "pushback/mux.md"
+#line 86 "pushback/mux.md"
 sub step
 {
-  my $self = shift;
+  my $self  = shift;
   my $deps  = $$self{process_deps};
   my $fns   = $$self{process_fns};
   my $avail = $$self{resource_avail};
@@ -301,6 +300,7 @@ sub loop
 }
 #line 6 "pushback/io.md"
 package pushback::io;
+use overload qw/ << add /;
 use Time::HiRes qw/time/;
 
 sub new
@@ -311,33 +311,117 @@ sub new
   my $avail = "\0" x ($fdset_bytes * 2);
   my $error = "\0" x ($fdset_bytes * 2);
 
-  bless { virtual_usage => "\0",
-          timer_queue   => [],
-          multiplexer   => pushback::mux->new($avail, $error),
-          files         => [],
+  bless { virtual_usage  => "\0",
+          virtual_offset => $max_fds * 2,
+          timer_queue    => [],
+          multiplexer    => pushback::mux->new($avail, $error),
+          files          => [],
+          max_fds        => $max_fds,
+          fdset_bytes    => $fdset_bytes,
 
-          avail         => \$avail,
-          error         => \$error,
-          max_fds       => $max_fds,
-          fdset_bytes   => $fdset_bytes,
+          fds_to_read    => "\0" x $fdset_bytes,
+          fds_to_write   => "\0" x $fdset_bytes,
+          avail          => \$avail,
+          error          => \$error,
 
-          fd_read       => \substr($avail, 0,            $fdset_bytes),
-          fd_write      => \substr($avail, $fdset_bytes, $fdset_bytes),
-          fd_rerror     => \substr($error, 0,            $fdset_bytes),
-          fd_werror     => \substr($error, $fdset_bytes, $fdset_bytes),
+          # Views of substrings to enable fast vector operations against parts
+          # of $avail and $error.
+          fd_ravail => \substr($avail, 0,            $fdset_bytes),
+          fd_wavail => \substr($avail, $fdset_bytes, $fdset_bytes),
+          fd_rerror => \substr($error, 0,            $fdset_bytes),
+          fd_werror => \substr($error, $fdset_bytes, $fdset_bytes),
 
-          fd_rbuf       => "\0" x $fdset_bytes,
-          fd_wbuf       => "\0" x $fdset_bytes,
-          fd_ebuf       => "\0" x $fdset_bytes }, $class;
+          # Preallocated memory so we can use in-place bitvector operations.
+          fd_rbuf => "\0" x $fdset_bytes,
+          fd_wbuf => "\0" x $fdset_bytes,
+          fd_ebuf => "\0" x $fdset_bytes }, $class;
 }
-#line 41 "pushback/io.md"
+#line 48 "pushback/io.md"
 sub read
 {
-  
+  my ($self, $f) = @_;
+  my $fd = fileno $f;
+  $$self{files}[$fd] = $f;
+  vec($$self{fds_to_read}, $fd, 1) = 1;
+  pushback::fd_stream->reader($self, $fd, $fd);
+}
+
+sub write
+{
+  my ($self, $f) = @_;
+  my $fd = fileno $f;
+  $$self{files}[$fd] = $f;
+  vec($$self{fds_to_write}, $fd, 1) = 1;
+  pushback::fd_stream->writer($self, $fd, $fd + $$self{max_fds});
+}
+#line 70 "pushback/io.md"
+sub add
+{
+  my ($self, $p) = @_;
+  $$self{mux}->add($p);
+  $self;
+}
+#line 83 "pushback/io.md"
+sub create_virtual
+{
+  my $self  = shift;
+  my $index = pushback::next_free_bit($$self{pid_usage});
+  my $id    = $index + $$self{virtual_offset};
+  vec($$self{virtual_usage}, $index, 1) = 1;
+  vec($$self{avail}, $id, 1) = 0;
+  vec($$self{error}, $id, 1) = 0;
+  $id;
+}
+
+sub delete_virtual
+{
+  my ($self, $id) = @_;
+  vec($$self{virtual_usage}, $id - $$self{virtual_offset}, 1) = 0;
+  $self;
+}
+#line 105 "pushback/io.md"
+sub time_to_next
+{
+  undef;          # TODO
+}
+#line 124 "pushback/io.md"
+sub select_args
+{
+  my $self = shift;
+  $$self{fd_rbuf}  = $$self{fds_to_read};
+  $$self{fd_wbuf}  = $$self{fds_to_write};
+  $$self{fd_ebuf}  = $$self{fds_to_read};
+  $$self{fd_ebuf} |= $$self{fds_to_write};
+
+  # Remove any fds whose status is already known.
+  $$self{fd_rbuf} ^= $$self{fd_ravail};
+  $$self{fd_wbuf} ^= $$self{fd_wavail};
+  $$self{fd_ebuf} ^= $$self{fd_rerror};
+  $$self{fd_ebuf} ^= $$self{fd_werror};
+
+  (\$$self{fd_rbuf}, \$$self{fd_wbuf}, \$$self{fd_ebuf}, $self->time_to_next);
+}
+
+sub step
+{
+  my $self = shift;
+
+  # Assume an external call has updated $$self{fd_rbuf} etc with new fd
+  # availability.
+  ${$$self{fd_ravail}} |= $$self{fd_rbuf};
+  ${$$self{fd_wavail}} |= $$self{fd_wbuf};
+  ${$$self{fd_rerror}} |= $$self{fd_ebuf};
+  ${$$self{fd_werror}} |= $$self{fd_ebuf};
+
+  ${$$self{fd_rerror}} &= $$self{fds_to_read};
+  ${$$self{fd_werror}} &= $$self{fds_to_write};
+
+  $$self{mux}->step;
+  $self;
 }
 #line 6 "pushback/process.md"
 package pushback::process;
-sub when
+sub new
 {
   my ($class, $fn, @deps) = @_;
   bless { fn    => $fn,
@@ -389,15 +473,87 @@ sub fail
   $$self{error} = shift;
   $self->kill;
 }
-#line 3 "pushback/stream.md"
+#line 5 "pushback/stream.md"
 package pushback::stream;
 use overload qw/ >> into /;
-sub new
+
+sub io  { shift->{io} }
+sub in  { shift->{in} }
+sub out { shift->{out} }
+sub deps
 {
-  my ($class, $in, $out) = @_;
-  bless { in  => $in,
-          out => $out,
-          ops => [] }, $class;
+  my $self = shift;
+  grep defined, @$self{qw/ in out /};
+}
+
+sub jit_read_op  { die "unimplemented JIT read op for $_[0]" }
+sub jit_write_op { die "unimplemented JIT write op for $_[0]" }
+
+sub into
+{
+  my ($self, $dest) = @_;
+  my @data;
+  my $jit = pushback::jit->new;
+  $self->jit_read_op($jit, \@data);
+  $dest->jit_write_op($jit, \@data);
+  pushback::process->new($jit, $$self{in}, $$dest{out});
+}
+#line 34 "pushback/stream.md"
+package pushback::fd_stream;
+push our @ISA, 'pushback::stream';
+
+sub reader
+{
+  my ($class, $io, $fd, $resource) = @_;
+  bless { io  => $io,
+          fd  => $fd,
+          in  => $resource,
+          out => undef }, $class;
+}
+
+sub writer
+{
+  my ($class, $io, $fd, $resource) = @_;
+  bless { io  => $io,
+          fd  => $fd,
+          in  => undef,
+          out => $resource }, $class;
+}
+
+sub jit_read_op
+{
+  my ($self, $jit, $data) = @_;
+  my $read_bit = \vec ${$$self{io}{avail}}, $$self{in}, 1;
+  my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
+  my $code =
+  q{
+    defined(sysread $fd, $$data[0] //= "", 65536) or die $!;
+    $read_bit = 0;
+  };
+
+  $jit->code($code, fd       => $$self{fd},
+                    buf      => $$self{buf},
+                    read_bit => $$read_bit,
+                    data     => $data);
+}
+
+sub jit_write_op
+{
+  my ($self, $jit, $data) = @_;
+  my $write_bit = \vec ${$$self{io}{avail}}, $$self{out}, 1;
+  my $err_bit   = \vec ${$$self{io}{error}}, $$self{out}, 1;
+
+  # TODO: buffer for incomplete writes; this involves allocating a virtual
+  # resource for buffer writability.
+  my $code =
+  q{
+    defined(syswrite $fd, $$data[0]) or die $!;
+    $write_bit = 0;
+  };
+
+  $jit->code($code, fd        => $$self{fd},
+                    write_bit => $$write_bit,
+                    data      => $data);
 }
 1;
 __END__
