@@ -11,13 +11,15 @@ sub new
 {
   my ($class, $max_fds) = @_;
   $max_fds //= 1024;
+  die "max_fds must be a multiple of 8" if $max_fds & 7;
   my $fdset_bytes = $max_fds + 7 >> 3;
   my $avail = "\0" x ($fdset_bytes * 2);
   my $error = "\0" x ($fdset_bytes * 2);
 
   bless { virtual_usage  => "\0",
           virtual_offset => $max_fds * 2,
-          timer_queue    => [],
+          timers         => [],
+          next_timer     => undef,
           multiplexer    => pushback::mux->new($avail, $error),
           files          => [],
           max_fds        => $max_fds,
@@ -25,6 +27,7 @@ sub new
 
           fds_to_read    => "\0" x $fdset_bytes,
           fds_to_write   => "\0" x $fdset_bytes,
+          fds_to_error   => "\0" x $fdset_bytes,
           avail          => \$avail,
           error          => \$error,
 
@@ -48,7 +51,19 @@ sub select_loop
   while ($self->running)
   {
     my ($r, $w, $e, $timeout) = $self->select_args;
+
+    printf STDERR "r = %s ; w = %s ; e = %s... ",
+      join(",", pushback::bit_indexes $$r),
+      join(",", pushback::bit_indexes $$w),
+      join(",", pushback::bit_indexes $$e);
+
     select $$r, $$w, $$e, $timeout;
+
+    printf STDERR " -> r = %s ; w = %s ; e = %s\n",
+      join(",", pushback::bit_indexes $$r),
+      join(",", pushback::bit_indexes $$w),
+      join(",", pushback::bit_indexes $$e);
+
     $self->step;
   }
   $self;
@@ -62,8 +77,10 @@ sub read
 {
   my ($self, $f) = @_;
   my $fd = fileno $f;
+  pushback::set_nonblock $f;
   $$self{files}[$fd] = $f;
   vec($$self{fds_to_read}, $fd, 1) = 1;
+  vec($$self{fds_to_error}, $fd, 1) = 1;
   pushback::fd_stream->reader($self, $fd, $fd);
 }
 
@@ -71,8 +88,10 @@ sub write
 {
   my ($self, $f) = @_;
   my $fd = fileno $f;
+  pushback::set_nonblock $f;
   $$self{files}[$fd] = $f;
   vec($$self{fds_to_write}, $fd, 1) = 1;
+  vec($$self{fds_to_error}, $fd, 1) = 1;
   pushback::fd_stream->writer($self, $fd, $fd + $$self{max_fds});
 }
 
@@ -143,16 +162,14 @@ $io->step;
 sub select_args
 {
   my $self = shift;
-  $$self{fd_rbuf}  = $$self{fds_to_read};
-  $$self{fd_wbuf}  = $$self{fds_to_write};
-  $$self{fd_ebuf}  = $$self{fds_to_read};
-  $$self{fd_ebuf} |= $$self{fds_to_write};
+  $$self{fd_rbuf} = $$self{fds_to_read};
+  $$self{fd_wbuf} = $$self{fds_to_write};
+  $$self{fd_ebuf} = $$self{fds_to_error};
 
   # Remove any fds whose status is already known.
   $$self{fd_rbuf} ^= ${$$self{fd_ravail}};
   $$self{fd_wbuf} ^= ${$$self{fd_wavail}};
   $$self{fd_ebuf} ^= ${$$self{fd_rerror}};
-  $$self{fd_ebuf} ^= ${$$self{fd_werror}};
 
   (\$$self{fd_rbuf}, \$$self{fd_wbuf}, \$$self{fd_ebuf}, $self->time_to_next);
 }
@@ -166,10 +183,7 @@ sub step
   ${$$self{fd_ravail}} |= $$self{fd_rbuf};
   ${$$self{fd_wavail}} |= $$self{fd_wbuf};
   ${$$self{fd_rerror}} |= $$self{fd_ebuf};
-  ${$$self{fd_werror}} |= $$self{fd_ebuf};
-
-  ${$$self{fd_rerror}} &= $$self{fds_to_read};
-  ${$$self{fd_werror}} &= $$self{fds_to_write};
+  ${$$self{fd_werror}}  = ${$$self{fd_rerror}};
 
   $$self{multiplexer}->step;
   $self;

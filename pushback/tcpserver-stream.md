@@ -20,11 +20,13 @@ sub listen
   bind       $s, pack_sockaddr_in $port, inet_aton $host    or die $!;
   listen     $s, SOMAXCONN                                  or die $!;
 
+  pushback::set_nonblock $s;
+
   bless { io   => $io,
           in   => fileno $s,
           out  => undef,
           sock => $s,
-          r    => $io->read($s),
+          r    => $io->read($s)->no_errors,
           host => $host,
           port => $port }, $class;
 }
@@ -36,20 +38,19 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    @$data = (undef, undef, undef);
-    if ($read_bit)
+    @$data = (undef, undef, undef, undef);
+    printf STDERR "accept(%d)... ", fileno $sock;
+    if ($$data[2] = accept $$data[0], $sock)
     {
-      $$data[2] = accept $$data[0], $sock;
-      $read_bit = 0;
-      defined $$data[2] or die $!;
       $$data[1] = $io->write($$data[0]);
       $$data[0] = $io->read($$data[0]);
     }
     else
     {
-      $$data[2] = accept undef, $sock;
-      $err_bit = 0;
+      $$data[3] = $!;
     }
+    print STDERR "done\n";
+    $read_bit = $err_bit = 0;
   };
 
   $jit->code($code, sock     => $$self{sock},

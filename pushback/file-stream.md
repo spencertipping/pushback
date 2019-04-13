@@ -1,4 +1,6 @@
 # File streams
+**TODO:** allocate resources here, not in IO.
+
 ```perl
 package pushback::fd_stream;
 push our @ISA, 'pushback::stream';
@@ -21,6 +23,15 @@ sub writer
           out => $resource }, $class;
 }
 
+sub no_errors
+{
+  my $self = shift;
+  vec($$self{io}{fds_to_error}, $$self{fd}, 1) = 0;
+  vec(${$$self{io}{fd_rerror}}, $$self{fd}, 1) = 0;
+  vec(${$$self{io}{fd_werror}}, $$self{fd}, 1) = 0;
+  $self;
+}
+
 sub jit_read_op
 {
   my ($self, $jit, $data) = @_;
@@ -28,9 +39,22 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    sysread($fh, $$data[0] //= "", 65536) or $$data[0] = undef;
-    close $fh if $err_bit;
+    if ($read_bit && defined fileno $fh)
+    {
+      @$data = ("", undef);
+      printf STDERR "read(%d)...", fileno $fh;
+      sysread($fh, $$data[0], 65536) or @$data = (undef, $!);
+      printf STDERR "done\n";
+    }
+    else
+    {
+      sysread $fh, $$data[0] = "", 0;
+      @$data = (undef, $!);
+      $err_bit = 0;
+    }
     $read_bit = 0;
+    close $fh, $fh = undef unless defined $$data[0];
+    print STDERR "$$data[1]\n" if defined $$data[1];
   };
 
   $jit->code($code, fh       => $$self{io}->file($$self{fd}),
@@ -49,16 +73,19 @@ sub jit_write_op
   # resource for buffer writability.
   my $code =
   q{
-    if (!$err_bit && defined $$data[0])
+    if ($write_bit && defined fileno $fh)
     {
-      defined(syswrite $fh, $$data[0]) or die $!;
-      $write_bit = 0;
+      printf STDERR "write(%d)...", fileno $fh;
+      defined(syswrite $fh, $$data[0]) or die $! if defined $$data[0];
+      printf STDERR "done\n";
     }
     else
     {
-      close $fh;
+      close $fh if defined fileno $fh;
+      $err_bit = 0;
       die;
     }
+    $write_bit = 0;
   };
 
   $jit->code($code, fh        => $$self{io}->file($$self{fd}),

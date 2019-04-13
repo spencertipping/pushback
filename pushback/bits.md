@@ -1,11 +1,28 @@
 # Internals
+```perl
+package pushback;
+```
+
+
+## File control
+```perl
+use Fcntl qw/ :DEFAULT /;
+sub set_nonblock
+{
+  my $fh = shift;
+  my $flags = fcntl $fh, F_GETFL, 0 or die $!;
+  fcntl $fh, F_SETFL, $flags | O_NONBLOCK;
+}
+```
+
+
 ## Bit selection
 We use a lot of bit vectors in pushback; Perl's bitwise string operations are
 insanely fast (for things available in an interpreted language), which makes
 them a good basis for performance-critical applications like this.
 
 ```perl
-sub pushback::bit_indexes
+sub bit_indexes
 {
   my @r;
   pos($_[0]) = undef;
@@ -34,7 +51,7 @@ $ perl -I. -Mpushback \
 
 ## Resource sets
 ```perl
-sub pushback::next_zero_bit
+sub next_zero_bit
 {
   pos($_[0]) = 0;
   if ($_[0] =~ /([^\xff])/g)

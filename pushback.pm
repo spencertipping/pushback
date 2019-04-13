@@ -25,8 +25,18 @@
 use v5.14;
 use strict;
 use warnings;
-#line 8 "pushback/bits.md"
-sub pushback::bit_indexes
+#line 3 "pushback/bits.md"
+package pushback;
+#line 9 "pushback/bits.md"
+use Fcntl qw/ :DEFAULT /;
+sub set_nonblock
+{
+  my $fh = shift;
+  my $flags = fcntl $fh, F_GETFL, 0 or die $!;
+  fcntl $fh, F_SETFL, $flags | O_NONBLOCK;
+}
+#line 25 "pushback/bits.md"
+sub bit_indexes
 {
   my @r;
   pos($_[0]) = undef;
@@ -42,8 +52,8 @@ sub pushback::bit_indexes
   }
   @r;
 }
-#line 37 "pushback/bits.md"
-sub pushback::next_zero_bit
+#line 54 "pushback/bits.md"
+sub next_zero_bit
 {
   pos($_[0]) = 0;
   if ($_[0] =~ /([^\xff])/g)
@@ -374,13 +384,15 @@ sub new
 {
   my ($class, $max_fds) = @_;
   $max_fds //= 1024;
+  die "max_fds must be a multiple of 8" if $max_fds & 7;
   my $fdset_bytes = $max_fds + 7 >> 3;
   my $avail = "\0" x ($fdset_bytes * 2);
   my $error = "\0" x ($fdset_bytes * 2);
 
   bless { virtual_usage  => "\0",
           virtual_offset => $max_fds * 2,
-          timer_queue    => [],
+          timers         => [],
+          next_timer     => undef,
           multiplexer    => pushback::mux->new($avail, $error),
           files          => [],
           max_fds        => $max_fds,
@@ -388,6 +400,7 @@ sub new
 
           fds_to_read    => "\0" x $fdset_bytes,
           fds_to_write   => "\0" x $fdset_bytes,
+          fds_to_error   => "\0" x $fdset_bytes,
           avail          => \$avail,
           error          => \$error,
 
@@ -411,18 +424,32 @@ sub select_loop
   while ($self->running)
   {
     my ($r, $w, $e, $timeout) = $self->select_args;
+
+    printf STDERR "r = %s ; w = %s ; e = %s... ",
+      join(",", pushback::bit_indexes $$r),
+      join(",", pushback::bit_indexes $$w),
+      join(",", pushback::bit_indexes $$e);
+
     select $$r, $$w, $$e, $timeout;
+
+    printf STDERR " -> r = %s ; w = %s ; e = %s\n",
+      join(",", pushback::bit_indexes $$r),
+      join(",", pushback::bit_indexes $$w),
+      join(",", pushback::bit_indexes $$e);
+
     $self->step;
   }
   $self;
 }
-#line 61 "pushback/io.md"
+#line 76 "pushback/io.md"
 sub read
 {
   my ($self, $f) = @_;
   my $fd = fileno $f;
+  pushback::set_nonblock $f;
   $$self{files}[$fd] = $f;
   vec($$self{fds_to_read}, $fd, 1) = 1;
+  vec($$self{fds_to_error}, $fd, 1) = 1;
   pushback::fd_stream->reader($self, $fd, $fd);
 }
 
@@ -430,8 +457,10 @@ sub write
 {
   my ($self, $f) = @_;
   my $fd = fileno $f;
+  pushback::set_nonblock $f;
   $$self{files}[$fd] = $f;
   vec($$self{fds_to_write}, $fd, 1) = 1;
+  vec($$self{fds_to_error}, $fd, 1) = 1;
   pushback::fd_stream->writer($self, $fd, $fd + $$self{max_fds});
 }
 
@@ -440,14 +469,14 @@ sub file
   my ($self, $fd) = @_;
   $$self{files}[$fd];
 }
-#line 89 "pushback/io.md"
+#line 108 "pushback/io.md"
 sub add
 {
   my ($self, $p) = @_;
   $$self{multiplexer}->add($p);
   $self;
 }
-#line 102 "pushback/io.md"
+#line 121 "pushback/io.md"
 sub create_virtual
 {
   my $self  = shift;
@@ -465,25 +494,23 @@ sub delete_virtual
   vec($$self{virtual_usage}, $id - $$self{virtual_offset}, 1) = 0;
   $self;
 }
-#line 124 "pushback/io.md"
+#line 143 "pushback/io.md"
 sub time_to_next
 {
   undef;          # TODO
 }
-#line 143 "pushback/io.md"
+#line 162 "pushback/io.md"
 sub select_args
 {
   my $self = shift;
-  $$self{fd_rbuf}  = $$self{fds_to_read};
-  $$self{fd_wbuf}  = $$self{fds_to_write};
-  $$self{fd_ebuf}  = $$self{fds_to_read};
-  $$self{fd_ebuf} |= $$self{fds_to_write};
+  $$self{fd_rbuf} = $$self{fds_to_read};
+  $$self{fd_wbuf} = $$self{fds_to_write};
+  $$self{fd_ebuf} = $$self{fds_to_error};
 
   # Remove any fds whose status is already known.
   $$self{fd_rbuf} ^= ${$$self{fd_ravail}};
   $$self{fd_wbuf} ^= ${$$self{fd_wavail}};
   $$self{fd_ebuf} ^= ${$$self{fd_rerror}};
-  $$self{fd_ebuf} ^= ${$$self{fd_werror}};
 
   (\$$self{fd_rbuf}, \$$self{fd_wbuf}, \$$self{fd_ebuf}, $self->time_to_next);
 }
@@ -497,10 +524,7 @@ sub step
   ${$$self{fd_ravail}} |= $$self{fd_rbuf};
   ${$$self{fd_wavail}} |= $$self{fd_wbuf};
   ${$$self{fd_rerror}} |= $$self{fd_ebuf};
-  ${$$self{fd_werror}} |= $$self{fd_ebuf};
-
-  ${$$self{fd_rerror}} &= $$self{fds_to_read};
-  ${$$self{fd_werror}} &= $$self{fds_to_write};
+  ${$$self{fd_werror}}  = ${$$self{fd_rerror}};
 
   $$self{multiplexer}->step;
   $self;
@@ -548,7 +572,7 @@ sub jit_write_op
   my ($self, $jit, $data) = @_;
   $jit->code(q{ &$fn(@$data); }, fn => $$self{fn}, data => $data);
 }
-#line 3 "pushback/file-stream.md"
+#line 5 "pushback/file-stream.md"
 package pushback::fd_stream;
 push our @ISA, 'pushback::stream';
 
@@ -570,6 +594,15 @@ sub writer
           out => $resource }, $class;
 }
 
+sub no_errors
+{
+  my $self = shift;
+  vec($$self{io}{fds_to_error}, $$self{fd}, 1) = 0;
+  vec(${$$self{io}{fd_rerror}}, $$self{fd}, 1) = 0;
+  vec(${$$self{io}{fd_werror}}, $$self{fd}, 1) = 0;
+  $self;
+}
+
 sub jit_read_op
 {
   my ($self, $jit, $data) = @_;
@@ -577,9 +610,22 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    sysread($fh, $$data[0] //= "", 65536) or $$data[0] = undef;
-    close $fh if $err_bit;
+    if ($read_bit && defined fileno $fh)
+    {
+      @$data = ("", undef);
+      printf STDERR "read(%d)...", fileno $fh;
+      sysread($fh, $$data[0], 65536) or @$data = (undef, $!);
+      printf STDERR "done\n";
+    }
+    else
+    {
+      sysread $fh, $$data[0] = "", 0;
+      @$data = (undef, $!);
+      $err_bit = 0;
+    }
     $read_bit = 0;
+    close $fh, $fh = undef unless defined $$data[0];
+    print STDERR "$$data[1]\n" if defined $$data[1];
   };
 
   $jit->code($code, fh       => $$self{io}->file($$self{fd}),
@@ -598,16 +644,19 @@ sub jit_write_op
   # resource for buffer writability.
   my $code =
   q{
-    if (!$err_bit && defined $$data[0])
+    if ($write_bit && defined fileno $fh)
     {
-      defined(syswrite $fh, $$data[0]) or die $!;
-      $write_bit = 0;
+      printf STDERR "write(%d)...", fileno $fh;
+      defined(syswrite $fh, $$data[0]) or die $! if defined $$data[0];
+      printf STDERR "done\n";
     }
     else
     {
-      close $fh;
+      close $fh if defined fileno $fh;
+      $err_bit = 0;
       die;
     }
+    $write_bit = 0;
   };
 
   $jit->code($code, fh        => $$self{io}->file($$self{fd}),
@@ -636,11 +685,13 @@ sub listen
   bind       $s, pack_sockaddr_in $port, inet_aton $host    or die $!;
   listen     $s, SOMAXCONN                                  or die $!;
 
+  pushback::set_nonblock $s;
+
   bless { io   => $io,
           in   => fileno $s,
           out  => undef,
           sock => $s,
-          r    => $io->read($s),
+          r    => $io->read($s)->no_errors,
           host => $host,
           port => $port }, $class;
 }
@@ -652,20 +703,19 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    @$data = (undef, undef, undef);
-    if ($read_bit)
+    @$data = (undef, undef, undef, undef);
+    printf STDERR "accept(%d)... ", fileno $sock;
+    if ($$data[2] = accept $$data[0], $sock)
     {
-      $$data[2] = accept $$data[0], $sock;
-      $read_bit = 0;
-      defined $$data[2] or die $!;
       $$data[1] = $io->write($$data[0]);
       $$data[0] = $io->read($$data[0]);
     }
     else
     {
-      $$data[2] = accept undef, $sock;
-      $err_bit = 0;
+      $$data[3] = $!;
     }
+    print STDERR "done\n";
+    $read_bit = $err_bit = 0;
   };
 
   $jit->code($code, sock     => $$self{sock},
