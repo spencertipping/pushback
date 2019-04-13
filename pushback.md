@@ -8,6 +8,7 @@ Quick table of contents, starting with the internals:
 
 Public API:
 
+- [IO container](pushback/io.md)
 - [Process object](pushback/process.md)
 - [Stream API](pushback/stream.md)
 
