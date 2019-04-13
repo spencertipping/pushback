@@ -42,6 +42,7 @@ sub code
   if (ref $code && $code->isa('pushback::jit'))
   {
     %{$$self{shared}} = (%{$$self{shared}}, %{$$code{shared}});
+    $$self{refs}{$_} //= $$code{refs}{$_} for keys %{$$code{refs}};
     push @{$$self{code}}, join"\n", @{$$code{code}}, $$code{end};
   }
   else
@@ -49,15 +50,14 @@ sub code
     my %v;
     while (@_)
     {
-      $$self{shared}
-            {$v{$_[0]} = $$self{refs}{\$_[1]} //= $self->gensym} = \$_[1];
+      $$self{shared}{$v{$_[0]} = $$self{refs}{\$_[1]} //= gensym} = \$_[1];
       shift;
       shift;
     }
     if (keys %v)
     {
       my $vs = join"|", keys %v;
-      $code =~ s/([\$@%&])($vs)/"$1\{\$$v{$2}\}"/eg;
+      $code =~ s/([\$@%&\*])($vs)/"$1\{\$$v{$2}\}"/eg;
     }
     push @{$$self{code}}, $code;
   }
