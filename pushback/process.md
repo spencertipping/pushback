@@ -15,6 +15,9 @@ sub new
           error => undef,
           deps  => \@deps }, $class;
 }
+
+sub running { defined shift->{pid} }
+sub deps    { @{shift->{deps}} }
 ```
 
 

@@ -62,6 +62,12 @@ sub write
   vec($$self{fds_to_write}, $fd, 1) = 1;
   pushback::fd_stream->writer($self, $fd, $fd + $$self{max_fds});
 }
+
+sub file
+{
+  my ($self, $fd) = @_;
+  $$self{files}[$fd];
+}
 ```
 
 
@@ -70,7 +76,7 @@ sub write
 sub add
 {
   my ($self, $p) = @_;
-  $$self{mux}->add($p);
+  $$self{multiplexer}->add($p);
   $self;
 }
 ```
@@ -83,7 +89,7 @@ sub add
 sub create_virtual
 {
   my $self  = shift;
-  my $index = pushback::next_free_bit($$self{pid_usage});
+  my $index = pushback::next_zero_bit $$self{pid_usage};
   my $id    = $index + $$self{virtual_offset};
   vec($$self{virtual_usage}, $index, 1) = 1;
   vec($$self{avail}, $id, 1) = 0;
@@ -130,10 +136,10 @@ sub select_args
   $$self{fd_ebuf} |= $$self{fds_to_write};
 
   # Remove any fds whose status is already known.
-  $$self{fd_rbuf} ^= $$self{fd_ravail};
-  $$self{fd_wbuf} ^= $$self{fd_wavail};
-  $$self{fd_ebuf} ^= $$self{fd_rerror};
-  $$self{fd_ebuf} ^= $$self{fd_werror};
+  $$self{fd_rbuf} ^= ${$$self{fd_ravail}};
+  $$self{fd_wbuf} ^= ${$$self{fd_wavail}};
+  $$self{fd_ebuf} ^= ${$$self{fd_rerror}};
+  $$self{fd_ebuf} ^= ${$$self{fd_werror}};
 
   (\$$self{fd_rbuf}, \$$self{fd_wbuf}, \$$self{fd_ebuf}, $self->time_to_next);
 }
@@ -152,7 +158,7 @@ sub step
   ${$$self{fd_rerror}} &= $$self{fds_to_read};
   ${$$self{fd_werror}} &= $$self{fds_to_write};
 
-  $$self{mux}->step;
+  $$self{multiplexer}->step;
   $self;
 }
 ```

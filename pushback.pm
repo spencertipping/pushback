@@ -75,7 +75,7 @@ sub new
 
 sub compile
 {
-  my $self  = shift;
+  my $self = shift;
   die "$$self{name}: must compile the parent JIT context"
     if defined $$self{parent};
 
@@ -167,7 +167,7 @@ sub new
 sub add
 {
   my ($self, $p) = @_;
-  my $pid = pushback::next_free_bit($$self{pid_usage});
+  my $pid = pushback::next_zero_bit $$self{pid_usage};
 
   push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
   push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
@@ -216,8 +216,9 @@ sub step
 
   OUTER:
   for my $pid (grep !$pids_seen{$_}++,
-               map  @$_, @{$$self{resource_index}}
-                          [pushback::bit_indexes $$avail])
+               map  @{$_ // EMPTY},
+                    @{$$self{resource_index}}
+                     [pushback::bit_indexes $$avail])
   {
     vec $$avail, $_, 1 or next OUTER for @{$$deps[$pid]};
     eval { $$fns[$pid]->() };
@@ -228,8 +229,9 @@ sub step
   {
     %pids_seen = ();
     for my $pid (grep !$pids_seen{$_}++,
-                 map  @$_, @{$$self{resource_index}}
-                            [pushback::bit_indexes ${$$self{resource_error}}])
+                 map  @{$_ // EMPTY},
+                      @{$$self{resource_index}}
+                       [pushback::bit_indexes ${$$self{resource_error}}])
     {
       eval { $$fns[$pid]->() };
       $$self{processes}[$pid]->fail($@) if $@;
@@ -354,18 +356,24 @@ sub write
   vec($$self{fds_to_write}, $fd, 1) = 1;
   pushback::fd_stream->writer($self, $fd, $fd + $$self{max_fds});
 }
-#line 70 "pushback/io.md"
+
+sub file
+{
+  my ($self, $fd) = @_;
+  $$self{files}[$fd];
+}
+#line 76 "pushback/io.md"
 sub add
 {
   my ($self, $p) = @_;
-  $$self{mux}->add($p);
+  $$self{multiplexer}->add($p);
   $self;
 }
-#line 83 "pushback/io.md"
+#line 89 "pushback/io.md"
 sub create_virtual
 {
   my $self  = shift;
-  my $index = pushback::next_free_bit($$self{pid_usage});
+  my $index = pushback::next_zero_bit $$self{pid_usage};
   my $id    = $index + $$self{virtual_offset};
   vec($$self{virtual_usage}, $index, 1) = 1;
   vec($$self{avail}, $id, 1) = 0;
@@ -379,12 +387,12 @@ sub delete_virtual
   vec($$self{virtual_usage}, $id - $$self{virtual_offset}, 1) = 0;
   $self;
 }
-#line 105 "pushback/io.md"
+#line 111 "pushback/io.md"
 sub time_to_next
 {
   undef;          # TODO
 }
-#line 124 "pushback/io.md"
+#line 130 "pushback/io.md"
 sub select_args
 {
   my $self = shift;
@@ -394,10 +402,10 @@ sub select_args
   $$self{fd_ebuf} |= $$self{fds_to_write};
 
   # Remove any fds whose status is already known.
-  $$self{fd_rbuf} ^= $$self{fd_ravail};
-  $$self{fd_wbuf} ^= $$self{fd_wavail};
-  $$self{fd_ebuf} ^= $$self{fd_rerror};
-  $$self{fd_ebuf} ^= $$self{fd_werror};
+  $$self{fd_rbuf} ^= ${$$self{fd_ravail}};
+  $$self{fd_wbuf} ^= ${$$self{fd_wavail}};
+  $$self{fd_ebuf} ^= ${$$self{fd_rerror}};
+  $$self{fd_ebuf} ^= ${$$self{fd_werror}};
 
   (\$$self{fd_rbuf}, \$$self{fd_wbuf}, \$$self{fd_ebuf}, $self->time_to_next);
 }
@@ -416,7 +424,7 @@ sub step
   ${$$self{fd_rerror}} &= $$self{fds_to_read};
   ${$$self{fd_werror}} &= $$self{fds_to_write};
 
-  $$self{mux}->step;
+  $$self{multiplexer}->step;
   $self;
 }
 #line 6 "pushback/process.md"
@@ -432,7 +440,10 @@ sub new
           error => undef,
           deps  => \@deps }, $class;
 }
-#line 23 "pushback/process.md"
+
+sub running { defined shift->{pid} }
+sub deps    { @{shift->{deps}} }
+#line 26 "pushback/process.md"
 sub kill
 {
   my $self = shift;
@@ -441,7 +452,7 @@ sub kill
   $$self{mux}->remove($$self{pid});
   $self;
 }
-#line 39 "pushback/process.md"
+#line 42 "pushback/process.md"
 sub fn
 {
   my $self = shift;
@@ -458,7 +469,7 @@ sub fn
       ->code('}')
       ->compile;
 }
-#line 60 "pushback/process.md"
+#line 63 "pushback/process.md"
 sub set_pid
 {
   my $self = shift;
@@ -527,11 +538,11 @@ sub jit_read_op
   my $err_bit  = \vec ${$$self{io}{error}}, $$self{in}, 1;
   my $code =
   q{
-    defined(sysread $fd, $$data[0] //= "", 65536) or die $!;
+    sysread($fh, $$data[0] //= "", 65536) or die $!;
     $read_bit = 0;
   };
 
-  $jit->code($code, fd       => $$self{fd},
+  $jit->code($code, fh       => $$self{io}->file($$self{fd}),
                     buf      => $$self{buf},
                     read_bit => $$read_bit,
                     data     => $data);
@@ -547,11 +558,11 @@ sub jit_write_op
   # resource for buffer writability.
   my $code =
   q{
-    defined(syswrite $fd, $$data[0]) or die $!;
+    defined(syswrite $fh, $$data[0]) or die $!;
     $write_bit = 0;
   };
 
-  $jit->code($code, fd        => $$self{fd},
+  $jit->code($code, fh        => $$self{io}->file($$self{fd}),
                     write_bit => $$write_bit,
                     data      => $data);
 }

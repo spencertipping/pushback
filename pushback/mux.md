@@ -32,7 +32,7 @@ sub new
 sub add
 {
   my ($self, $p) = @_;
-  my $pid = pushback::next_free_bit($$self{pid_usage});
+  my $pid = pushback::next_zero_bit $$self{pid_usage};
 
   push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
   push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
@@ -93,8 +93,9 @@ sub step
 
   OUTER:
   for my $pid (grep !$pids_seen{$_}++,
-               map  @$_, @{$$self{resource_index}}
-                          [pushback::bit_indexes $$avail])
+               map  @{$_ // EMPTY},
+                    @{$$self{resource_index}}
+                     [pushback::bit_indexes $$avail])
   {
     vec $$avail, $_, 1 or next OUTER for @{$$deps[$pid]};
     eval { $$fns[$pid]->() };
@@ -105,8 +106,9 @@ sub step
   {
     %pids_seen = ();
     for my $pid (grep !$pids_seen{$_}++,
-                 map  @$_, @{$$self{resource_index}}
-                            [pushback::bit_indexes ${$$self{resource_error}}])
+                 map  @{$_ // EMPTY},
+                      @{$$self{resource_index}}
+                       [pushback::bit_indexes ${$$self{resource_error}}])
     {
       eval { $$fns[$pid]->() };
       $$self{processes}[$pid]->fail($@) if $@;

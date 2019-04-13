@@ -29,7 +29,7 @@ sub new
 
 sub compile
 {
-  my $self  = shift;
+  my $self = shift;
   die "$$self{name}: must compile the parent JIT context"
     if defined $$self{parent};
 
