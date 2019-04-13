@@ -131,21 +131,47 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
-#line 11 "pushback/mux.md"
+#line 12 "pushback/mux.md"
 package pushback::process;
 sub new
 {
-  my ($class, $fn, @deps) = @_;
-  bless { fn   => $fn,
-          time => 0,
-          n    => 0,
-          deps => \@deps }, $class;
+  my ($class, $mux, $fn, @deps) = @_;
+  bless { fn    => $fn,
+          time  => 0,
+          n     => 0,
+          mux   => $mux,
+          pid   => undef,
+          error => undef,
+          deps  => \@deps }, $class;
+}
+
+sub set_pid
+{
+  my $self = shift;
+  $$self{pid} = shift;
+  $self;
+}
+
+sub kill
+{
+  my $self = shift;
+  die "process is not running (has no PID)" unless defined $$self{pid};
+  $$self{mux}->remove($$self{pid});
+  $self;
+}
+
+sub fail
+{
+  my $self = shift;
+  $$self{error} = shift;
+  $self->kill;
 }
 
 sub fn
 {
   my $self = shift;
   my $jit = pushback::jit->new
+    ->code('sub {')
     ->code('use Time::HiRes qw/time/;')
     ->code('++$n; $t -= time();', n => $$self{n}, t => $$self{time});
 
@@ -154,22 +180,64 @@ sub fn
     : $jit->code($$self{fn});
 
   $jit->code('$t += time();', t => $$self{time})
+      ->code('}')
       ->compile;
 }
-#line 44 "pushback/mux.md"
+#line 71 "pushback/mux.md"
 package pushback::mux;
 sub new
 {
   my $class = shift;
   my $avail = \shift;
   my $error = \shift;
-
   bless { pid_usage      => "\0",
           process_fns    => [],
           process_deps   => [],
+          processes      => [],
+          check_errors   => 0,
           resource_index => [],
           resource_avail => $avail,
           resource_error => $error }, $class;
+}
+#line 91 "pushback/mux.md"
+sub when
+{
+  my $self = shift;
+  my $fn   = pop;
+  die "processes must be predicated on at least one resource ID" unless @_;
+  $self->add_process(pushback::process->new($self, $fn, @_));
+}
+#line 103 "pushback/mux.md"
+sub add_process
+{
+  my ($self, $p) = @_;
+  my $pid = $self->next_free_pid;
+
+  push @{$$self{process_fns}},  undef until $#{$$self{process_fns}}  >= $pid;
+  push @{$$self{process_deps}}, undef until $#{$$self{process_deps}} >= $pid;
+
+  $$self{processes}[$pid]    = $p;
+  $$self{process_fns}[$pid]  = $p->fn;
+  $$self{process_deps}[$pid] = [$p->deps];
+
+  $self->update_index($pid);
+  vec($$self{pid_usage}, $pid, 1) = 1;
+  $p->set_pid($pid);
+}
+
+sub remove_process
+{
+  my ($self, $pid) = @_;
+  my $p    = $$self{processes}[$pid];
+  my $deps = $$self{process_deps}[$pid];
+
+  $$self{processes}[$pid]    = undef;
+  $$self{process_fns}[$pid]  = undef;
+  $$self{process_deps}[$pid] = undef;
+
+  $self->update_index($pid, @$deps);
+  vec($$self{pid_usage}, $pid, 1) = 0;
+  $p->set_pid(undef);
 }
 
 sub next_free_pid
@@ -188,42 +256,48 @@ sub next_free_pid
     length($$self{pid_usage}) << 3;
   }
 }
-
-
-#line 82 "pushback/mux.md"
+#line 156 "pushback/mux.md"
+use constant EMPTY => [];
+sub update_index
+{
+  my $self = shift;
+  my $pid  = shift;
+  my $ri   = $$self{resource_index};
+  $$ri[$_] = [grep $_ != $pid, @{$$ri[$_] // EMPTY}] for @_;
+  push @{$$ri[$_] //= []}, $pid for @{$$self{process_deps}[$pid]};
+}
+#line 170 "pushback/mux.md"
 sub step
 {
   my $self = shift;
-  my $run  = 0;
-  my ($is, $os, $fs, $r, $w, $re, $we)
-    = @$self{qw/ inputs outputs fns rvec wvec revec wevec /};
+  my $deps  = $$self{process_deps};
+  my $fns   = $$self{process_fns};
+  my $avail = $$self{resource_avail};
+  my %pids_seen;
 
-  my @errors;
-  for my $i (0..$#$fs)
+  OUTER:
+  for my $pid (grep !$pids_seen{$_}++,
+               map  @$_, @{$$self{resource_index}}
+                          [pushback::bit_indexes $$avail])
   {
-    my ($in, $out, $fn) = ($$is[$i], $$os[$i], $$fs[$i]);
-    ++$run, &$fn($r, $w, $in, $out) while vec $$r, $in, 1 and vec $$w, $out, 1;
-    push @errors, $i if vec $$re, $in, 1 or vec $$we, $out, 1;
+    vec $$avail, $_, 1 or next OUTER for @{$$deps[$pid]};
+    eval { $$fns[$pid]->() };
+    $$self{processes}[$pid]->fail($@) if $@;
   }
 
-  if (@errors)
+  if ($$self{check_errors})
   {
-    @$is[@errors] = ();
-    @$os[@errors] = ();
-    @$fs[@errors] = ();
-    @$is = grep defined, @$is;
-    @$os = grep defined, @$os;
-    @$fs = grep defined, @$fs;
+    %pids_seen = ();
+    for my $pid (grep !$pids_seen{$_}++,
+                 map  @$_, @{$$self{resource_index}}
+                            [pushback::bit_indexes ${$$self{resource_error}}])
+    {
+      eval { $$fns[$pid]->() };
+      $$self{processes}[$pid]->fail($@) if $@;
+    }
   }
 
-  $run;
-}
-
-sub loop
-{
-  my $self = shift;
-  return 0 unless $self->step;
-  1 while $self->step;
+  $self;
 }
 #line 3 "pushback/io-select.md"
 package pushback::io_select;
