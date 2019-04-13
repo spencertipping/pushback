@@ -1,0 +1,15 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my $bv1 = "\0" x 1024;
+my $bv2 = "\0" x 1024;
+my $n = 1024;
+
+timethese 10000000, {
+  xor          => sub { $bv1 ^= $bv2 },
+  assign_var   => sub { $bv1 = $bv2 },
+  assign_const => sub { $bv1 = "\0" x 1024 },
+  assign_gen   => sub { $bv1 = "\0" x $n },
+};
