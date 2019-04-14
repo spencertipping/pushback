@@ -229,7 +229,7 @@ sub jit_fragment
       data   => $$data);
   }
 }
-#line 12 "pushback/flow.md"
+#line 19 "pushback/flow.md"
 package pushback::flow;
 
 our $flowpoint_id = 0;
@@ -253,7 +253,7 @@ sub remain_open
   $$self{remain_open} = $remain_open // 1;
   $self;
 }
-#line 40 "pushback/flow.md"
+#line 47 "pushback/flow.md"
 sub add_reader;             # ($proc) -> $self
 sub add_writer;             # ($proc) -> $self
 sub remove_reader;          # ($proc) -> $self
@@ -272,7 +272,9 @@ sub writable;               # ($proc) -> $self
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
 sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
-#line 63 "pushback/flow.md"
+sub jit_mark_readable;      # ($jit, $proc) -> $jit
+sub jit_mark_writable;      # ($jit, $proc) -> $jit
+#line 72 "pushback/flow.md"
 sub add_reader
 {
   my ($self, $proc) = @_;
@@ -322,7 +324,7 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
-#line 123 "pushback/flow.md"
+#line 132 "pushback/flow.md"
 sub handle_eof
 {
   my ($self, $proc) = @_;
@@ -336,11 +338,13 @@ sub close
   my ($self, $error) = @_;
   $_->eof($self, $error) for $$self{read_simplex}->sources;
   $self->invalidate_jit_writers;
+  delete $$self{read_queue};
+  delete $$self{write_queue};
   delete $$self{read_simplex};
   delete $$self{write_simplex};
   $$self{closed} = 1;
 }
-#line 147 "pushback/flow.md"
+#line 158 "pushback/flow.md"
 sub read
 {
   my $self = shift;
@@ -376,7 +380,7 @@ sub writable
   push @{$$self{write_queue}}, $proc;
   $self;
 }
-#line 187 "pushback/flow.md"
+#line 198 "pushback/flow.md"
 sub jit_read_fragment
 {
   my $self = shift;

@@ -6,7 +6,14 @@ switching between monomorphic and polymorphic modes.
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
 
-**FIXME:** process -> flow JIT invalidation is too aggressive
+**FIXME:** process -> flow JIT invalidation is too aggressive; we need a way to
+say "this flow didn't change, so don't backpropagate if we're polymorphic"
+
+**TODO:** allocate a bitvector for read/write availability instead of using
+queues; then maintain reader/writer arrays instead of hashes (bitvector per
+simplex)
+
+**TODO:** JIT fragments to propagate availability
 
 ```perl
 package pushback::flow;
@@ -55,6 +62,8 @@ sub writable;               # ($proc) -> $self
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
 sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_mark_readable;      # ($jit, $proc) -> $jit
+sub jit_mark_writable;      # ($jit, $proc) -> $jit
 ```
 
 
@@ -133,6 +142,8 @@ sub close
   my ($self, $error) = @_;
   $_->eof($self, $error) for $$self{read_simplex}->sources;
   $self->invalidate_jit_writers;
+  delete $$self{read_queue};
+  delete $$self{write_queue};
   delete $$self{read_simplex};
   delete $$self{write_simplex};
   $$self{closed} = 1;
