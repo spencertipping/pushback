@@ -100,5 +100,32 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
+#line 7 "pushback/flow.md"
+package pushback::flow;
+sub new
+{
+  my $class = shift;
+  bless { readers  => [],
+          writers  => [],
+          queue    => [],
+          pressure => 0 }, $class;
+}
+#line 21 "pushback/flow.md"
+sub add_reader;             # ($proc) -> $self
+sub add_writer;             # ($proc) -> $self
+sub remove_reader;          # ($proc) -> $self
+sub remove_writer;          # ($proc) -> $self
+sub jit_read_fragment;      # ($jit, $n, $data) -> $self
+sub jit_write_fragment;     # ($jit, $n, $data) -> $self
+sub invalidate_jit_readers; # () -> _
+sub invalidate_jit_writers; # () -> _
+#line 6 "pushback/process.md"
+package pushback::process;
+#line 12 "pushback/process.md"
+sub jit_read;               # ($jit, $node, $n, $data) -> _
+sub jit_write;              # ($jit, $node, $n, $data) -> _
+sub eof;                    # ($node, $error | undef) -> _
+sub invalidate_jit_reader;  # ($node) -> _
+sub invalidate_jit_writer;  # ($node) -> _
 1;
 __END__
