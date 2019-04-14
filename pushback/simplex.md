@@ -1,6 +1,12 @@
 # Simplex negotiators
 ```perl
 package pushback::simplex;
+
+# read()/write() results (also used in JIT fragments)
+use constant PENDING => 0;
+use constant EOF     => -1;
+use constant RETRY   => -2;
+
 sub new
 {
   my ($class, $mode, $queue) = @_;
@@ -64,13 +70,14 @@ sub jit_fn_for
 {
   my ($self, $flow, $proc) = @_;
   my ($offset, $n, $data);
+  my $method = "jit_$$self{mode}";
   my $jit = pushback::jit->new
     ->code("#line 1 \"$flow/$proc JIT source\"")
     ->code('sub { ($offset, $n, $data) = @_;',
            offset => $offset,
            n      => $n,
            data   => $data);
-  $proc->"jit_$$self{mode}"($jit->child('}'), $flow, $offset, $n, $data);
+  $proc->$method($jit->child('}'), $flow, $offset, $n, $data);
   $jit->end->compile;
 }
 
@@ -83,7 +90,7 @@ sub request
   # Requests are served from the offer queue. If we have none, turn this request
   # into an offer on the opposing queue by returning PENDING.
   my $q;
-  return pushback::flow::PENDING unless @{$q = $$self{queue}};
+  return PENDING unless @{$q = $$self{queue}};
 
   my $offset = shift;
   my $len    = shift;
@@ -94,8 +101,8 @@ sub request
     $n = $self->process_fn($responder)->($offset, $len, $_[0]);
     die "$responder over-replied to $flow/$proc: requested $len but got $n"
       if $n > $len;
-    return $n if $n == pushback::flow::RETRY
-              || $n == pushback::flow::EOF && $flow->handle_eof($responder);
+    return $n if $n == RETRY
+              || $n == EOF && $flow->handle_eof($responder);
     $total  += $n;
     $offset += $n;
     $len    -= $n;
@@ -120,7 +127,8 @@ sub jit_fragment
   if ($self->is_monomorphic)
   {
     my ($s) = values %{$$self{sources}};
-    $s->"jit_$$self{mode}"($jit, $flow, $$offset, $$n, $$data);
+    my $method = "jit_$$self{mode}";
+    $s->$method($jit, $flow, $$offset, $$n, $$data);
   }
   else
   {

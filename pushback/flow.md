@@ -3,14 +3,12 @@ An omnidirectional cut-through negotiation point for processes to exchange data.
 Flow points provide JIT read/write proxies and propagate invalidation when
 switching between monomorphic and polymorphic modes.
 
+Most of the mechanics of flow negotiation are delegated to [simplex
+objects](simplex.md).
+
 ```perl
 package pushback::flow;
 use Scalar::Util qw/refaddr/;
-
-# read()/write() results (also used in JIT fragments)
-use constant PENDING => 0;
-use constant EOF     => -1;
-use constant RETRY   => -2;
 
 our $flowpoint_id = 0;
 sub new
@@ -27,9 +25,6 @@ sub new
           closed        => 0 }, $class;
 }
 ```
-
-Most of the mechanics of flow negotiation are delegated to [simplex
-objects](simplex.md).
 
 
 ## Process-facing API
@@ -127,7 +122,7 @@ sub read
   my $proc = shift;
   die "$proc cannot read from closed flow $self" if $$self{closed};
   my $n = $$self{write_simplex}->request($self, $proc, @_);
-  push @{$$self{read_queue}}, $proc if $n == PENDING;
+  push @{$$self{read_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
 }
 
@@ -137,7 +132,7 @@ sub write
   my $proc = shift;
   die "$proc cannot write to closed flow $self" if $$self{closed};
   my $n = $$self{read_simplex}->request($self, $proc, @_);
-  push @{$$self{write_queue}}, $proc if $n == PENDING;
+  push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
 }
 ```
