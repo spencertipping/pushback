@@ -18,9 +18,8 @@ our $gensym = 0;
 
 sub new
 {
-  my ($class, $name) = @_;
+  my $class = shift;
   bless { parent => undef,
-          name   => $name,
           shared => {},
           refs   => {},
           code   => [],
@@ -80,9 +79,8 @@ sub code
 ```perl
 sub child
 {
-  my ($self, $name, $end) = @_;
+  my ($self, $end) = @_;
   bless { parent  => $self,
-          name    => "$$self{name} $name",
           closure => $$self{closure},
           code    => [],
           end     => $end // "" }, ref $self;
