@@ -10,7 +10,6 @@ objects](simplex.md).
 
 ```perl
 package pushback::flow;
-use Scalar::Util qw/refaddr/;
 
 our $flowpoint_id = 0;
 sub new

@@ -9,3 +9,5 @@ Quick table of contents, starting with the internals:
 Processes:
 
 - [Copy](pushback/copy.md)
+- [`seq`](pushback/seq.md)
+- [Each](pushback/each.md)

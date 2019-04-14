@@ -1,6 +1,7 @@
 # Simplex negotiators
 ```perl
 package pushback::simplex;
+use Scalar::Util qw/refaddr/;
 
 # read()/write() results (also used in JIT fragments)
 use constant NOP     =>  0;
@@ -37,14 +38,14 @@ sub jit_fragment;           # ($flow, $jit, $proc, $offset, $n, $data) -> $n
 sub add
 {
   my ($self, $proc) = @_;
-  $$self{sources}{$proc->name} = $proc;
+  $$self{sources}{refaddr $proc} = $proc;
   keys %{$$self{sources}} < 3;
 }
 
 sub remove
 {
   my ($self, $proc) = @_;
-  delete $$self{sources}{$proc->name};
+  delete $$self{sources}{refaddr $proc};
   keys %{$$self{sources}} < 2;
 }
 

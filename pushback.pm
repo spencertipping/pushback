@@ -100,6 +100,7 @@ sub end
 }
 #line 3 "pushback/simplex.md"
 package pushback::simplex;
+use Scalar::Util qw/refaddr/;
 
 # read()/write() results (also used in JIT fragments)
 use constant NOP     =>  0;
@@ -118,24 +119,24 @@ sub new
 
 sub is_monomorphic { keys   %{shift->{sources}} == 1 }
 sub sources        { values %{shift->{sources}} }
-#line 27 "pushback/simplex.md"
+#line 28 "pushback/simplex.md"
 sub add;                    # ($proc) -> $self
 sub remove;                 # ($proc) -> $self
 sub invalidate_jit;         # () -> $self
 sub request;                # ($flow, $proc, $offset, $n, $data) -> $n
 sub jit_fragment;           # ($flow, $jit, $proc, $offset, $n, $data) -> $n
-#line 37 "pushback/simplex.md"
+#line 38 "pushback/simplex.md"
 sub add
 {
   my ($self, $proc) = @_;
-  $$self{sources}{$proc->name} = $proc;
+  $$self{sources}{refaddr $proc} = $proc;
   keys %{$$self{sources}} < 3;
 }
 
 sub remove
 {
   my ($self, $proc) = @_;
-  delete $$self{sources}{$proc->name};
+  delete $$self{sources}{refaddr $proc};
   keys %{$$self{sources}} < 2;
 }
 
@@ -145,7 +146,7 @@ sub invalidate_jit
   %{$$self{source_fns}} = ();
   $self;
 }
-#line 64 "pushback/simplex.md"
+#line 65 "pushback/simplex.md"
 sub process_fn
 {
   my ($self, $flow, $proc) = @_;
@@ -200,7 +201,7 @@ sub request
   }
   $total;
 }
-#line 123 "pushback/simplex.md"
+#line 124 "pushback/simplex.md"
 sub jit_fragment
 {
   my $self   = shift;
@@ -230,7 +231,6 @@ sub jit_fragment
 }
 #line 12 "pushback/flow.md"
 package pushback::flow;
-use Scalar::Util qw/refaddr/;
 
 our $flowpoint_id = 0;
 sub new
@@ -253,7 +253,7 @@ sub remain_open
   $$self{remain_open} = $remain_open // 1;
   $self;
 }
-#line 41 "pushback/flow.md"
+#line 40 "pushback/flow.md"
 sub add_reader;             # ($proc) -> $self
 sub add_writer;             # ($proc) -> $self
 sub remove_reader;          # ($proc) -> $self
@@ -270,7 +270,7 @@ sub close;                  # ($error?) -> $self
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
 sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
-#line 62 "pushback/flow.md"
+#line 61 "pushback/flow.md"
 sub add_reader
 {
   my ($self, $proc) = @_;
@@ -315,7 +315,7 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
-#line 117 "pushback/flow.md"
+#line 116 "pushback/flow.md"
 sub handle_eof
 {
   my ($self, $proc) = @_;
@@ -333,7 +333,7 @@ sub close
   delete $$self{write_simplex};
   $$self{closed} = 1;
 }
-#line 141 "pushback/flow.md"
+#line 140 "pushback/flow.md"
 sub read
 {
   my $self = shift;
@@ -353,7 +353,7 @@ sub write
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
 }
-#line 165 "pushback/flow.md"
+#line 164 "pushback/flow.md"
 sub jit_read_fragment
 {
   my $self = shift;
@@ -380,8 +380,11 @@ push our @ISA, qw/pushback::process/;
 sub new
 {
   my ($class, $from, $to) = @_;
-  bless { from => $from,
-          to   => $to }, $class;
+  my $self = bless { from => $from,
+                     to   => $to }, $class;
+  $from->add_reader($self);
+  $to->add_writer($self);
+  $self;
 }
 
 sub jit_read
@@ -422,6 +425,83 @@ sub invalidate_jit_writer
   my $self = shift;
   $$self{to}->invalidate_jit_writers;
   $self;
+}
+#line 3 "pushback/seq.md"
+package pushback::seq;
+push our @ISA, qw/pushback::process/;
+
+sub new
+{
+  my ($class, $into, $from, $inc) = @_;
+  my $self = bless { into => $into,
+                     from => $from // 0,
+                     inc  => $inc  // 1 }, $class;
+  $into->add_writer($self);
+  $self;
+}
+
+sub invalidate_jit_writer { shift }
+
+sub jit_write
+{
+  my $self   = shift;
+  my $jit    = shift;
+  my $flow   = shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
+
+  $jit->code(
+    q{
+      if ($inc == 1)
+      {
+        @$data[$offset..$offset+$n-1] = $start..$start+$n-1;
+        $start += $n;
+      }
+      else
+      {
+        $$data[$offset + $i++] = $start += $inc while $i < $n;
+      }
+    },
+    i      => my $i = 0,
+    start  => $$self{from},
+    inc    => $$self{inc},
+    offset => $$offset,
+    n      => $$n,
+    data   => $$data);
+}
+#line 23 "pushback/each.md"
+package pushback::each;
+push our @ISA, qw/pushback::process/;
+
+sub new
+{
+  my ($class, $from, $fn) = @_;
+  my $self = bless { from => $from,
+                     fn   => $fn }, $class;
+  $from->add_reader($self);
+  $self;
+}
+
+sub invalidate_jit_reader { shift }
+
+sub jit_read
+{
+  my $self   = shift;
+  my $jit    = shift;
+  my $flow   = shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
+
+  $jit->code(
+    q{
+      &$fn(@$data[$offset .. $offset + $n - 1]);
+    },
+    fn     => $$self{fn},
+    offset => $offset,
+    n      => $n,
+    data   => $data);
 }
 1;
 __END__

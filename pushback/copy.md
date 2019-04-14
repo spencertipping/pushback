@@ -6,8 +6,11 @@ push our @ISA, qw/pushback::process/;
 sub new
 {
   my ($class, $from, $to) = @_;
-  bless { from => $from,
-          to   => $to }, $class;
+  my $self = bless { from => $from,
+                     to   => $to }, $class;
+  $from->add_reader($self);
+  $to->add_writer($self);
+  $self;
 }
 
 sub jit_read
