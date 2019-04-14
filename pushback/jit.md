@@ -76,23 +76,6 @@ sub code
 }
 ```
 
-## Macros
-```perl
-sub mark
-{
-  my $self = shift;
-  $self->code("#line 1 \"$$self{name} @_\"");
-}
-sub if    { shift->block(if    => @_) }
-sub while { shift->block(while => @_) }
-sub block
-{
-  my ($self, $type) = (shift, shift);
-  $self->code("$type(")->code(@_)->code("){")
-       ->child($type, "}");
-}
-```
-
 ## Parent/child linkage
 ```perl
 sub child
