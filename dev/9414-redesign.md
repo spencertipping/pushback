@@ -93,5 +93,58 @@ cut-through `map`/`grep`/etc with no graph analysis at all. That's pretty
 awesome.
 
 
-## ...so what does our flow network look like?
-**TODO**
+## ...so what does our flow negotiation logic look like?
+Conceptually:
+
+```pl
+while ($something_moved)
+{
+  while ($pressure > 0 && $something_moved && @awaiting)
+  {
+    # JIT for monomorphic readers
+    shift(@awaiting)->(...);
+  }
+
+  while ($pressure < 0 && $something_moved && @awaiting)
+  {
+    # JIT for monomorphic writers
+    shift(@awaiting)->(...);
+  }
+}
+```
+
+This means each flow node has something like this:
+
+```pl
+my $node = [$pressure, $something_moved, @awaiting];
+```
+
+The invariant is that every entry in `@awaiting` is responding to the same
+pressure polarity: at any moment all are readers or all are writers.
+
+Monomorphic flow is simpler and is driven synchronously by offers:
+
+```pl
+jit_write_offer($n):
+  while ($n)
+  {
+    <jit_read_ok_fragment>;
+    while ($something_moved && $n)
+    {
+      <jit_write_ok_fragment>;
+    }
+  }
+
+jit_read_offer($n):
+  while ($n)
+  {
+    <jit_write_ok_fragment>;
+    while ($something_moved && $n)
+    {
+      <jit_read_ok_fragment>;
+    }
+  }
+```
+
+I think I need to sketch this out to clarify a little, but that's the overall
+idea.
