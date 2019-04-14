@@ -106,7 +106,8 @@ sub request
       die "process $responder cannot respond to flow point $flow with PENDING"
         if $n == PENDING;
       return $n if $n == RETRY
-                || $n == EOF && $flow->handle_eof($responder);
+                || $n == EOF
+                   && $flow->remove_writer($responder)->handle_eof($responder);
     }
     $total  += $n;
     $offset += $n;

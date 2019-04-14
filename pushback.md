@@ -5,3 +5,7 @@ Quick table of contents, starting with the internals:
 - [Process interface](pushback/process.md)
 - [Flow point](pushback/flow.md)
 - [Flow simplex](pushback/simplex.md)
+
+Processes:
+
+- [Copy](pushback/copy.md)

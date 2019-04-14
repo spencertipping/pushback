@@ -12,5 +12,6 @@ package pushback::process;
 sub jit_read;               # ($jit, $flow, $offset, $n, $data) -> $jit
 sub jit_write;              # ($jit, $flow, $offset, $n, $data) -> $jit
 sub eof;                    # ($flow, $error | undef) -> $self
-sub invalidate_jit;         # ($flow) -> $self
+sub invalidate_jit_reader;  # ($flow) -> $self
+sub invalidate_jit_writer;  # ($flow) -> $self
 ```

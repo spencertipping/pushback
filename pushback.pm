@@ -191,7 +191,8 @@ sub request
       die "process $responder cannot respond to flow point $flow with PENDING"
         if $n == PENDING;
       return $n if $n == RETRY
-                || $n == EOF && $flow->handle_eof($responder);
+                || $n == EOF
+                   && $flow->remove_writer($responder)->handle_eof($responder);
     }
     $total  += $n;
     $offset += $n;
@@ -199,7 +200,7 @@ sub request
   }
   $total;
 }
-#line 122 "pushback/simplex.md"
+#line 123 "pushback/simplex.md"
 sub jit_fragment
 {
   my $self   = shift;
@@ -227,7 +228,7 @@ sub jit_fragment
       data   => $$data);
   }
 }
-#line 10 "pushback/flow.md"
+#line 12 "pushback/flow.md"
 package pushback::flow;
 use Scalar::Util qw/refaddr/;
 
@@ -252,7 +253,7 @@ sub remain_open
   $$self{remain_open} = $remain_open // 1;
   $self;
 }
-#line 39 "pushback/flow.md"
+#line 41 "pushback/flow.md"
 sub add_reader;             # ($proc) -> $self
 sub add_writer;             # ($proc) -> $self
 sub remove_reader;          # ($proc) -> $self
@@ -269,7 +270,7 @@ sub close;                  # ($error?) -> $self
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
 sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
-#line 60 "pushback/flow.md"
+#line 62 "pushback/flow.md"
 sub add_reader
 {
   my ($self, $proc) = @_;
@@ -295,6 +296,7 @@ sub remove_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
+  $self->handle_eof($proc) unless $$self{write_simplex}->sources;
   $self;
 }
 
@@ -313,11 +315,10 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
-#line 114 "pushback/flow.md"
+#line 117 "pushback/flow.md"
 sub handle_eof
 {
   my ($self, $proc) = @_;
-  $self->remove_writer($proc);
   return 0 if $$self{remain_open} || $$self{write_simplex}->sources;
   $self->close;
   1;
@@ -332,7 +333,7 @@ sub close
   delete $$self{write_simplex};
   $$self{closed} = 1;
 }
-#line 139 "pushback/flow.md"
+#line 141 "pushback/flow.md"
 sub read
 {
   my $self = shift;
@@ -352,7 +353,7 @@ sub write
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
 }
-#line 163 "pushback/flow.md"
+#line 165 "pushback/flow.md"
 sub jit_read_fragment
 {
   my $self = shift;
@@ -370,6 +371,57 @@ package pushback::process;
 sub jit_read;               # ($jit, $flow, $offset, $n, $data) -> $jit
 sub jit_write;              # ($jit, $flow, $offset, $n, $data) -> $jit
 sub eof;                    # ($flow, $error | undef) -> $self
-sub invalidate_jit;         # ($flow) -> $self
+sub invalidate_jit_reader;  # ($flow) -> $self
+sub invalidate_jit_writer;  # ($flow) -> $self
+#line 3 "pushback/copy.md"
+package pushback::copy;
+push our @ISA, qw/pushback::process/;
+
+sub new
+{
+  my ($class, $from, $to) = @_;
+  bless { from => $from,
+          to   => $to }, $class;
+}
+
+sub jit_read
+{
+  my $self = shift;
+  my $jit  = shift;
+  shift;
+  $$self{from}->jit_read_fragment($jit, $self, @_);
+}
+
+sub jit_write
+{
+  my $self = shift;
+  my $jit  = shift;
+  shift;
+  $$self{to}->jit_write_fragment($jit, $self, @_);
+}
+
+sub eof
+{
+  my ($self, $flow, $error) = @_;
+  $$self{from}->remove_reader($self);
+  $$self{to}->remove_writer($self);
+  delete $$self{from};
+  delete $$self{to};
+  $self;
+}
+
+sub invalidate_jit_reader
+{
+  my $self = shift;
+  $$self{from}->invalidate_jit_readers;
+  $self;
+}
+
+sub invalidate_jit_writer
+{
+  my $self = shift;
+  $$self{to}->invalidate_jit_writers;
+  $self;
+}
 1;
 __END__

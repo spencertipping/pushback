@@ -6,6 +6,8 @@ switching between monomorphic and polymorphic modes.
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
 
+**FIXME:** process -> flow JIT invalidation is too aggressive
+
 ```perl
 package pushback::flow;
 use Scalar::Util qw/refaddr/;
@@ -82,6 +84,7 @@ sub remove_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
+  $self->handle_eof($proc) unless $$self{write_simplex}->sources;
   $self;
 }
 
@@ -114,7 +117,6 @@ cases:
 sub handle_eof
 {
   my ($self, $proc) = @_;
-  $self->remove_writer($proc);
   return 0 if $$self{remain_open} || $$self{write_simplex}->sources;
   $self->close;
   1;
