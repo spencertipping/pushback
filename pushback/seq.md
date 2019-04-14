@@ -10,6 +10,7 @@ sub new
                      from => $from // 0,
                      inc  => $inc  // 1 }, $class;
   $into->add_writer($self);
+  $into->readable($self);
   $self;
 }
 
@@ -35,10 +36,13 @@ sub jit_write
       {
         $$data[$offset + $i++] = $start += $inc while $i < $n;
       }
+      $into->readable($self);
     },
     i      => my $i = 0,
     start  => $$self{from},
     inc    => $$self{inc},
+    into   => $$self{into},
+    self   => $self,
     offset => $$offset,
     n      => $$n,
     data   => $$data);

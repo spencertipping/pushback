@@ -89,6 +89,7 @@ sub child
   my ($self, $end) = @_;
   bless { parent  => $self,
           closure => $$self{closure},
+          shared  => $$self{shared},
           code    => [],
           end     => $end // "" }, ref $self;
 }
@@ -164,8 +165,7 @@ sub jit_fn_for
            offset => $offset,
            n      => $n,
            data   => $data);
-  $proc->$method($jit->child('}'), $flow, $offset, $n, $data);
-  $jit->end->compile;
+  $proc->$method($jit->child('}'), $flow, $offset, $n, $data)->end->compile;
 }
 
 sub request
@@ -184,7 +184,7 @@ sub request
   my ($total, $n, $responder) = (0, undef, undef);
   while ($len && defined($responder = shift @$q))
   {
-    $n = $self->process_fn($responder)->($offset, $len, $_[0]);
+    $n = $self->process_fn($flow, $responder)->($offset, $len, $_[0]);
     die "$responder over-replied to $flow/$proc: requested $len but got $n"
       if $n > $len;
     if ($n < 0)
@@ -201,7 +201,7 @@ sub request
   }
   $total;
 }
-#line 124 "pushback/simplex.md"
+#line 123 "pushback/simplex.md"
 sub jit_fragment
 {
   my $self   = shift;
@@ -266,11 +266,13 @@ sub handle_eof;             # ($proc) -> $early_exit?
 sub read;                   # ($proc, $offset, $n, $data) -> $n
 sub write;                  # ($proc, $offset, $n, $data) -> $n
 sub close;                  # ($error?) -> $self
+sub readable;               # ($proc) -> $self
+sub writable;               # ($proc) -> $self
 
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
 sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
-#line 61 "pushback/flow.md"
+#line 63 "pushback/flow.md"
 sub add_reader
 {
   my ($self, $proc) = @_;
@@ -315,7 +317,7 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
-#line 116 "pushback/flow.md"
+#line 118 "pushback/flow.md"
 sub handle_eof
 {
   my ($self, $proc) = @_;
@@ -333,7 +335,7 @@ sub close
   delete $$self{write_simplex};
   $$self{closed} = 1;
 }
-#line 140 "pushback/flow.md"
+#line 142 "pushback/flow.md"
 sub read
 {
   my $self = shift;
@@ -353,7 +355,21 @@ sub write
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
 }
-#line 164 "pushback/flow.md"
+
+sub readable
+{
+  my ($self, $proc) = @_;
+  push @{$$self{read_queue}}, $proc;
+  $self;
+}
+
+sub writable
+{
+  my ($self, $proc) = @_;
+  push @{$$self{write_queue}}, $proc;
+  $self;
+}
+#line 180 "pushback/flow.md"
 sub jit_read_fragment
 {
   my $self = shift;
@@ -437,6 +453,7 @@ sub new
                      from => $from // 0,
                      inc  => $inc  // 1 }, $class;
   $into->add_writer($self);
+  $into->readable($self);
   $self;
 }
 
@@ -462,10 +479,13 @@ sub jit_write
       {
         $$data[$offset + $i++] = $start += $inc while $i < $n;
       }
+      $into->readable($self);
     },
     i      => my $i = 0,
     start  => $$self{from},
     inc    => $$self{inc},
+    into   => $$self{into},
+    self   => $self,
     offset => $$offset,
     n      => $$n,
     data   => $$data);
@@ -480,6 +500,7 @@ sub new
   my $self = bless { from => $from,
                      fn   => $fn }, $class;
   $from->add_reader($self);
+  $from->readable($self);
   $self;
 }
 
@@ -497,7 +518,10 @@ sub jit_read
   $jit->code(
     q{
       &$fn(@$data[$offset .. $offset + $n - 1]);
+      $from->readable($self);
     },
+    from   => $$self{from},
+    self   => $self,
     fn     => $$self{fn},
     offset => $offset,
     n      => $n,

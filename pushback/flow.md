@@ -49,6 +49,8 @@ sub handle_eof;             # ($proc) -> $early_exit?
 sub read;                   # ($proc, $offset, $n, $data) -> $n
 sub write;                  # ($proc, $offset, $n, $data) -> $n
 sub close;                  # ($error?) -> $self
+sub readable;               # ($proc) -> $self
+sub writable;               # ($proc) -> $self
 
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
@@ -155,6 +157,20 @@ sub write
   my $n = $$self{read_simplex}->request($self, $proc, @_);
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
+}
+
+sub readable
+{
+  my ($self, $proc) = @_;
+  push @{$$self{read_queue}}, $proc;
+  $self;
+}
+
+sub writable
+{
+  my ($self, $proc) = @_;
+  push @{$$self{write_queue}}, $proc;
+  $self;
 }
 ```
 

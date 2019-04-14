@@ -29,6 +29,7 @@ sub new
   my $self = bless { from => $from,
                      fn   => $fn }, $class;
   $from->add_reader($self);
+  $from->readable($self);
   $self;
 }
 
@@ -46,7 +47,10 @@ sub jit_read
   $jit->code(
     q{
       &$fn(@$data[$offset .. $offset + $n - 1]);
+      $from->readable($self);
     },
+    from   => $$self{from},
+    self   => $self,
     fn     => $$self{fn},
     offset => $offset,
     n      => $n,

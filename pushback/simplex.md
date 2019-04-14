@@ -79,8 +79,7 @@ sub jit_fn_for
            offset => $offset,
            n      => $n,
            data   => $data);
-  $proc->$method($jit->child('}'), $flow, $offset, $n, $data);
-  $jit->end->compile;
+  $proc->$method($jit->child('}'), $flow, $offset, $n, $data)->end->compile;
 }
 
 sub request
@@ -99,7 +98,7 @@ sub request
   my ($total, $n, $responder) = (0, undef, undef);
   while ($len && defined($responder = shift @$q))
   {
-    $n = $self->process_fn($responder)->($offset, $len, $_[0]);
+    $n = $self->process_fn($flow, $responder)->($offset, $len, $_[0]);
     die "$responder over-replied to $flow/$proc: requested $len but got $n"
       if $n > $len;
     if ($n < 0)

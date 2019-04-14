@@ -82,6 +82,7 @@ sub child
   my ($self, $end) = @_;
   bless { parent  => $self,
           closure => $$self{closure},
+          shared  => $$self{shared},
           code    => [],
           end     => $end // "" }, ref $self;
 }
