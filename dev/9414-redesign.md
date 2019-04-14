@@ -84,8 +84,14 @@ case each process provides different entry points per flow port:
   - `write_ok($to, $n, $data)`: negotiated write to somewhere
 
 Each of the JIT fragment compilers gets a corresponding flow-network API to
-issue inlined `read`/`write` negotiations to flow nodes.
+issue inlined `read`/`write` negotiations to flow nodes. `read_ok` and
+`write_ok` JIT points may be invoked multiple times with different flow-network
+API generators to specialize hot IO paths.
 
 I think this reduces our monomorphic overhead to zero, which means we get
 cut-through `map`/`grep`/etc with no graph analysis at all. That's pretty
 awesome.
+
+
+## ...so what does our flow network look like?
+**TODO**
