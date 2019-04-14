@@ -45,3 +45,47 @@ flow points change in polarity or order of magnitude.
 Processes can provide JIT contexts for IO operations against different flow
 points. This allows the flow network to opportunistically specialize for common
 IO paths.
+
+This means everything is based on events; there's no process-poll loop. That's
+great because it takes a lot of latency out of serial chains.
+
+What's the flow/process conversation?
+
+```
+my $n = read(50, ...);                  # create a flow vacuum or move data
+if ($n > 0)                             # $n > 0 : success
+elsif ($n == 0)                         # $n == 0 : offered
+elsif ($n == -1)                        # $n == -1 : eof
+elsif ($n == -2) { die $! }             # $n == -2 : error, problem in $!
+```
+
+Same deal for writes:
+
+```
+my $n = write(...);                     # create flow pressure or move data
+if ($n > 0) ...                         # success
+elsif ($n == 0)                         # offered
+elsif ($n == -2) { die $! }             # error, problem in $!
+```
+
+This seems like a lot of overhead, but it allows negotiated vectorization and
+should easily be worth it.
+
+
+## JIT-based API
+No sense in running an `if` chain if we already know the value of `$n`. In that
+case each process provides different entry points per flow port:
+
+- Non-JIT setup
+  - `init`: connect to the flow network
+  - `deinit($! | undef)`: disconnect, either successfully or not
+- JIT fragments
+  - `read_ok($from, $n, $data)`: negotiated read from somewhere
+  - `write_ok($to, $n, $data)`: negotiated write to somewhere
+
+Each of the JIT fragment compilers gets a corresponding flow-network API to
+issue inlined `read`/`write` negotiations to flow nodes.
+
+I think this reduces our monomorphic overhead to zero, which means we get
+cut-through `map`/`grep`/etc with no graph analysis at all. That's pretty
+awesome.
