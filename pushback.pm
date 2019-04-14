@@ -102,9 +102,10 @@ sub end
 package pushback::simplex;
 
 # read()/write() results (also used in JIT fragments)
-use constant PENDING => 0;
-use constant EOF     => -1;
-use constant RETRY   => -2;
+use constant NOP     =>  0;
+use constant PENDING => -1;
+use constant EOF     => -2;
+use constant RETRY   => -3;
 
 sub new
 {
@@ -117,13 +118,13 @@ sub new
 
 sub is_monomorphic { keys   %{shift->{sources}} == 1 }
 sub sources        { values %{shift->{sources}} }
-#line 26 "pushback/simplex.md"
+#line 27 "pushback/simplex.md"
 sub add;                    # ($proc) -> $self
 sub remove;                 # ($proc) -> $self
 sub invalidate_jit;         # () -> $self
 sub request;                # ($flow, $proc, $offset, $n, $data) -> $n
 sub jit_fragment;           # ($flow, $jit, $proc, $offset, $n, $data) -> $n
-#line 36 "pushback/simplex.md"
+#line 37 "pushback/simplex.md"
 sub add
 {
   my ($self, $proc) = @_;
@@ -144,7 +145,7 @@ sub invalidate_jit
   %{$$self{source_fns}} = ();
   $self;
 }
-#line 63 "pushback/simplex.md"
+#line 64 "pushback/simplex.md"
 sub process_fn
 {
   my ($self, $flow, $proc) = @_;
@@ -182,19 +183,23 @@ sub request
   my ($total, $n, $responder) = (0, undef, undef);
   while ($len && defined($responder = shift @$q))
   {
-  retry:
     $n = $self->process_fn($responder)->($offset, $len, $_[0]);
     die "$responder over-replied to $flow/$proc: requested $len but got $n"
       if $n > $len;
-    return $n if $n == RETRY
-              || $n == EOF && $flow->handle_eof($responder);
+    if ($n < 0)
+    {
+      die "process $responder cannot respond to flow point $flow with PENDING"
+        if $n == PENDING;
+      return $n if $n == RETRY
+                || $n == EOF && $flow->handle_eof($responder);
+    }
     $total  += $n;
     $offset += $n;
     $len    -= $n;
   }
   $total;
 }
-#line 117 "pushback/simplex.md"
+#line 122 "pushback/simplex.md"
 sub jit_fragment
 {
   my $self   = shift;
@@ -237,10 +242,17 @@ sub new
           write_queue   => \@write_queue,
           read_simplex  => pushback::simplex->new(read  => \@read_queue),
           write_simplex => pushback::simplex->new(write => \@write_queue),
-          close_on_last => 1,
+          remain_open   => 0,
           closed        => 0 }, $class;
 }
-#line 32 "pushback/flow.md"
+
+sub remain_open
+{
+  my ($self, $remain_open) = @_;
+  $$self{remain_open} = $remain_open // 1;
+  $self;
+}
+#line 39 "pushback/flow.md"
 sub add_reader;             # ($proc) -> $self
 sub add_writer;             # ($proc) -> $self
 sub remove_reader;          # ($proc) -> $self
@@ -257,7 +269,7 @@ sub close;                  # ($error?) -> $self
 # JIT inliners for monomorphic reads/writes
 sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
 sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
-#line 53 "pushback/flow.md"
+#line 60 "pushback/flow.md"
 sub add_reader
 {
   my ($self, $proc) = @_;
@@ -301,6 +313,15 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
+#line 114 "pushback/flow.md"
+sub handle_eof
+{
+  my ($self, $proc) = @_;
+  $self->remove_writer($proc);
+  return 0 if $$self{remain_open} || $$self{write_simplex}->sources;
+  $self->close;
+  1;
+}
 
 sub close
 {
@@ -311,13 +332,7 @@ sub close
   delete $$self{write_simplex};
   $$self{closed} = 1;
 }
-
-sub handle_eof
-{
-  my ($self, $proc) = @_;
-  $self->remove_writer($proc);
-}
-#line 119 "pushback/flow.md"
+#line 139 "pushback/flow.md"
 sub read
 {
   my $self = shift;
@@ -337,7 +352,7 @@ sub write
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
   $n;
 }
-#line 143 "pushback/flow.md"
+#line 163 "pushback/flow.md"
 sub jit_read_fragment
 {
   my $self = shift;

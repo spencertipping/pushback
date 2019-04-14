@@ -21,8 +21,15 @@ sub new
           write_queue   => \@write_queue,
           read_simplex  => pushback::simplex->new(read  => \@read_queue),
           write_simplex => pushback::simplex->new(write => \@write_queue),
-          close_on_last => 1,
+          remain_open   => 0,
           closed        => 0 }, $class;
+}
+
+sub remain_open
+{
+  my ($self, $remain_open) = @_;
+  $$self{remain_open} = $remain_open // 1;
+  $self;
 }
 ```
 
@@ -93,6 +100,25 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
+```
+
+## EOF
+This is kind of subtle. Readers can ignore one writer's EOF in either of two
+cases:
+
+1. There are more writers
+2. The flow point is set to remain open after the last writer returns EOF
+   (presumably more writers will be added later)
+
+```perl
+sub handle_eof
+{
+  my ($self, $proc) = @_;
+  $self->remove_writer($proc);
+  return 0 if $$self{remain_open} || $$self{write_simplex}->sources;
+  $self->close;
+  1;
+}
 
 sub close
 {
@@ -102,12 +128,6 @@ sub close
   delete $$self{read_simplex};
   delete $$self{write_simplex};
   $$self{closed} = 1;
-}
-
-sub handle_eof
-{
-  my ($self, $proc) = @_;
-  $self->remove_writer($proc);
 }
 ```
 

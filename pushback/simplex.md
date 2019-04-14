@@ -3,9 +3,10 @@
 package pushback::simplex;
 
 # read()/write() results (also used in JIT fragments)
-use constant PENDING => 0;
-use constant EOF     => -1;
-use constant RETRY   => -2;
+use constant NOP     =>  0;
+use constant PENDING => -1;
+use constant EOF     => -2;
+use constant RETRY   => -3;
 
 sub new
 {
@@ -97,12 +98,16 @@ sub request
   my ($total, $n, $responder) = (0, undef, undef);
   while ($len && defined($responder = shift @$q))
   {
-  retry:
     $n = $self->process_fn($responder)->($offset, $len, $_[0]);
     die "$responder over-replied to $flow/$proc: requested $len but got $n"
       if $n > $len;
-    return $n if $n == RETRY
-              || $n == EOF && $flow->handle_eof($responder);
+    if ($n < 0)
+    {
+      die "process $responder cannot respond to flow point $flow with PENDING"
+        if $n == PENDING;
+      return $n if $n == RETRY
+                || $n == EOF && $flow->handle_eof($responder);
+    }
     $total  += $n;
     $offset += $n;
     $len    -= $n;
