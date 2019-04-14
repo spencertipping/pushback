@@ -5,17 +5,11 @@ For example:
 $ perl -I. -Mpushback -e '
     my $flow = pushback::flow->new;
     my $each = pushback::each->new($flow, sub { print "$_\n" for @_ });
-    $flow->write(0, 1, [$_]) for 1..10'
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
+    $flow->write($each, 0, 1, ["foo$_"]) for 1..4'
+foo1
+foo2
+foo3
+foo4
 ```
 
 
@@ -48,12 +42,13 @@ sub jit_read
     q{
       &$fn(@$data[$offset .. $offset + $n - 1]);
       $from->readable($self);
+      $n;
     },
     from   => $$self{from},
     self   => $self,
     fn     => $$self{fn},
-    offset => $offset,
-    n      => $n,
-    data   => $data);
+    offset => $$offset,
+    n      => $$n,
+    data   => $$data);
 }
 ```

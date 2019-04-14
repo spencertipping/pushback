@@ -67,7 +67,7 @@ sub code
     if (keys %v)
     {
       my $vs = join"|", keys %v;
-      $code =~ s/([\$@%&\*])($vs)/"$1\{\$$v{$2}\}"/eg;
+      $code =~ s/([\$@%&\*])($vs)\b/"$1\{\$$v{$2}\}"/eg;
     }
     push @{$$self{code}}, $code;
   }

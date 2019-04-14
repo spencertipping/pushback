@@ -1,4 +1,20 @@
 # `seq` process: generate numbers
+For example:
+
+```bash
+$ perl -I. -Mpushback -e '
+    my $flow = pushback::flow->new;
+    my $seq  = pushback::seq->new($flow);
+    my @xs;
+    $flow->read($seq, 0, 4, \@xs);
+    print "$_\n" for @xs'
+0
+1
+2
+3
+```
+
+
 ```perl
 package pushback::seq;
 push our @ISA, qw/pushback::process/;
@@ -10,7 +26,7 @@ sub new
                      from => $from // 0,
                      inc  => $inc  // 1 }, $class;
   $into->add_writer($self);
-  $into->readable($self);
+  $into->writable($self);
   $self;
 }
 
@@ -36,7 +52,8 @@ sub jit_write
       {
         $$data[$offset + $i++] = $start += $inc while $i < $n;
       }
-      $into->readable($self);
+      $into->writable($self);
+      $n;
     },
     i      => my $i = 0,
     start  => $$self{from},

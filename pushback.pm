@@ -77,7 +77,7 @@ sub code
     if (keys %v)
     {
       my $vs = join"|", keys %v;
-      $code =~ s/([\$@%&\*])($vs)/"$1\{\$$v{$2}\}"/eg;
+      $code =~ s/([\$@%&\*])($vs)\b/"$1\{\$$v{$2}\}"/eg;
     }
     push @{$$self{code}}, $code;
   }
@@ -291,6 +291,8 @@ sub remove_reader
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_writers if $$self{read_simplex}->remove($proc);
+  $$self{read_queue}
+    = [grep refaddr($_) != refaddr($proc), @{$$self{read_queue}}];
   $self;
 }
 
@@ -298,6 +300,9 @@ sub remove_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
+  $$self{write_queue}
+    = [grep refaddr($_) != refaddr($proc), @{$$self{write_queue}}];
+
   $self->handle_eof($proc) unless $$self{write_simplex}->sources;
   $self;
 }
@@ -317,7 +322,7 @@ sub invalidate_jit_writers
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
-#line 118 "pushback/flow.md"
+#line 123 "pushback/flow.md"
 sub handle_eof
 {
   my ($self, $proc) = @_;
@@ -335,11 +340,12 @@ sub close
   delete $$self{write_simplex};
   $$self{closed} = 1;
 }
-#line 142 "pushback/flow.md"
+#line 147 "pushback/flow.md"
 sub read
 {
   my $self = shift;
   my $proc = shift;
+  die "usage: read(\$proc, \$offset, \$n, \$data)" unless ref $proc;
   die "$proc cannot read from closed flow $self" if $$self{closed};
   my $n = $$self{write_simplex}->request($self, $proc, @_);
   push @{$$self{read_queue}}, $proc if $n == pushback::simplex::PENDING;
@@ -350,6 +356,7 @@ sub write
 {
   my $self = shift;
   my $proc = shift;
+  die "usage: write(\$proc, \$offset, \$n, \$data)" unless ref $proc;
   die "$proc cannot write to closed flow $self" if $$self{closed};
   my $n = $$self{read_simplex}->request($self, $proc, @_);
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
@@ -369,7 +376,7 @@ sub writable
   push @{$$self{write_queue}}, $proc;
   $self;
 }
-#line 180 "pushback/flow.md"
+#line 187 "pushback/flow.md"
 sub jit_read_fragment
 {
   my $self = shift;
@@ -442,7 +449,7 @@ sub invalidate_jit_writer
   $$self{to}->invalidate_jit_writers;
   $self;
 }
-#line 3 "pushback/seq.md"
+#line 19 "pushback/seq.md"
 package pushback::seq;
 push our @ISA, qw/pushback::process/;
 
@@ -453,7 +460,7 @@ sub new
                      from => $from // 0,
                      inc  => $inc  // 1 }, $class;
   $into->add_writer($self);
-  $into->readable($self);
+  $into->writable($self);
   $self;
 }
 
@@ -479,7 +486,8 @@ sub jit_write
       {
         $$data[$offset + $i++] = $start += $inc while $i < $n;
       }
-      $into->readable($self);
+      $into->writable($self);
+      $n;
     },
     i      => my $i = 0,
     start  => $$self{from},
@@ -490,7 +498,7 @@ sub jit_write
     n      => $$n,
     data   => $$data);
 }
-#line 23 "pushback/each.md"
+#line 17 "pushback/each.md"
 package pushback::each;
 push our @ISA, qw/pushback::process/;
 
@@ -519,13 +527,14 @@ sub jit_read
     q{
       &$fn(@$data[$offset .. $offset + $n - 1]);
       $from->readable($self);
+      $n;
     },
     from   => $$self{from},
     self   => $self,
     fn     => $$self{fn},
-    offset => $offset,
-    n      => $n,
-    data   => $data);
+    offset => $$offset,
+    n      => $$n,
+    data   => $$data);
 }
 1;
 __END__

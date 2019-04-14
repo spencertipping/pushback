@@ -78,6 +78,8 @@ sub remove_reader
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_writers if $$self{read_simplex}->remove($proc);
+  $$self{read_queue}
+    = [grep refaddr($_) != refaddr($proc), @{$$self{read_queue}}];
   $self;
 }
 
@@ -85,6 +87,9 @@ sub remove_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
+  $$self{write_queue}
+    = [grep refaddr($_) != refaddr($proc), @{$$self{write_queue}}];
+
   $self->handle_eof($proc) unless $$self{write_simplex}->sources;
   $self;
 }
@@ -143,6 +148,7 @@ sub read
 {
   my $self = shift;
   my $proc = shift;
+  die "usage: read(\$proc, \$offset, \$n, \$data)" unless ref $proc;
   die "$proc cannot read from closed flow $self" if $$self{closed};
   my $n = $$self{write_simplex}->request($self, $proc, @_);
   push @{$$self{read_queue}}, $proc if $n == pushback::simplex::PENDING;
@@ -153,6 +159,7 @@ sub write
 {
   my $self = shift;
   my $proc = shift;
+  die "usage: write(\$proc, \$offset, \$n, \$data)" unless ref $proc;
   die "$proc cannot write to closed flow $self" if $$self{closed};
   my $n = $$self{read_simplex}->request($self, $proc, @_);
   push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
