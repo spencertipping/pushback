@@ -30,6 +30,12 @@ sub new
   $self;
 }
 
+sub name
+{
+  my $self = shift;
+  "seq($$self{from} x $$self{inc} -> $$self{into})";
+}
+
 sub invalidate_jit_writer { shift }
 
 sub jit_write

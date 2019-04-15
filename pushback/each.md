@@ -27,6 +27,12 @@ sub new
   $self;
 }
 
+sub name
+{
+  my $self = shift;
+  "each($$self{from} -> sub { ... })";
+}
+
 sub invalidate_jit_reader { shift }
 
 sub jit_read

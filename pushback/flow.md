@@ -6,8 +6,14 @@ switching between monomorphic and polymorphic modes.
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
 
+**TODO:** rename `readability` and `writability` etc to be clearer
+
+**TODO:** cut-through availability propagation
+
+
 ```perl
 package pushback::flow;
+use overload qw/ "" name /;
 
 use constant FLAG_CLOSED        => 0x01;
 use constant FLAG_REMAIN_OPEN   => 0x02;
@@ -25,6 +31,7 @@ sub new
 
 sub read_monomorphic  { shift->{read_simplex}->is_monomorphic }
 sub write_monomorphic { shift->{write_simplex}->is_monomorphic }
+sub name              { shift->{name} }
 
 sub remain_open
 {
@@ -136,7 +143,7 @@ sub handle_eof
 sub close
 {
   my ($self, $error) = @_;
-  $_->eof($self, $error) for $$self{read_simplex}->sources;
+  $_->eof($self, $error) for $$self{read_simplex}->responders;
   $self->invalidate_jit_writers;
   delete $$self{read_queue};
   delete $$self{write_queue};
@@ -158,11 +165,12 @@ sub read
   my $self = shift;
   my $proc = shift;
 
-  die "usage: read(\$proc, \$offset, \$n, \$data)" unless ref $proc;
+  die "usage: read(\$proc, \$offset, \$n, \$data)" if @_ < 3;
   die "$proc cannot read from closed flow $self" if $$self{flags} & FLAG_CLOSED;
 
   my $n = $$self{write_simplex}->request($self, $proc, @_);
-  $$self{read_simplex}->available($proc) if $n == pushback::simplex::PENDING;
+  $$self{read_simplex}->available($self, $proc)
+    if defined $proc and $n == pushback::simplex::PENDING;
   $n;
 }
 
@@ -171,25 +179,26 @@ sub write
   my $self = shift;
   my $proc = shift;
 
-  die "usage: write(\$proc, \$offset, \$n, \$data)" unless ref $proc;
+  die "usage: write(\$proc, \$offset, \$n, \$data)" if @_ < 3;
   die "$proc cannot write to closed flow $self" if $$self{flags} & FLAG_CLOSED;
 
   my $n = $$self{read_simplex}->request($self, $proc, @_);
-  $$self{write_simplex}->available($proc) if $n == pushback::simplex::PENDING;
+  $$self{write_simplex}->available($self, $proc)
+    if defined $proc and $n == pushback::simplex::PENDING;
   $n;
 }
 
 sub readable
 {
   my ($self, $proc) = @_;
-  $$self{read_simplex}->available($proc);
+  $$self{read_simplex}->available($self, $proc);
   $self;
 }
 
 sub writable
 {
   my ($self, $proc) = @_;
-  $$self{write_simplex}->available($proc);
+  $$self{write_simplex}->available($self, $proc);
   $self;
 }
 ```

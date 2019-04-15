@@ -1,4 +1,22 @@
 # Copy process
+For example:
+
+```bash
+$ perl -I. -Mpushback -e '
+    my $flow1 = pushback::flow->new;
+    my $seq   = pushback::seq->new($flow1);
+    my $flow2 = pushback::flow->new;
+    my $copy  = pushback::copy->new($flow1, $flow2);
+    my @xs;
+    $flow2->read(undef, 0, 4, \@xs);
+    print "$_\n" for @xs'
+0
+1
+2
+3
+```
+
+
 ```perl
 package pushback::copy;
 push our @ISA, qw/pushback::process/;
@@ -11,6 +29,12 @@ sub new
   $from->add_reader($self);
   $to->add_writer($self);
   $self;
+}
+
+sub name
+{
+  my $self = shift;
+  "copy($$self{from} -> $$self{to})";
 }
 
 sub jit_read

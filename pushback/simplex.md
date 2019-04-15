@@ -39,7 +39,7 @@ sub add;                    # ($proc) -> $invalidate_jit?
 sub remove;                 # ($proc) -> $invalidate_jit?
 sub invalidate_jit;         # () -> $self
 sub request;                # ($flow, $proc, $offset, $n, $data) -> $n
-sub available;              # ($proc) -> $self
+sub available;              # ($flow, $proc) -> $self
 
 sub jit_request;            # ($flow, $jit, $proc, $offset, $n, $data) -> $jit
 sub jit_available;          # ($flow, $jit, $proc) -> $jit
@@ -172,8 +172,10 @@ sub request
 
 sub available
 {
-  my ($self, $proc) = @_;
-  $$self{availability} |= 1 << $$self{responder_idx}{refaddr $proc};
+  my ($self, $flow, $proc) = @_;
+  my $i = $$self{responder_idx}{refaddr $proc}
+    // die "$flow can't indicate availability of unmanaged proc $proc";
+  $$self{availability} |= 1 << $i;
   $self;
 }
 ```
@@ -214,7 +216,5 @@ sub jit_available
   $jit->code('$availability |= '
            . (1 << $$self{responder_idx}{refaddr $proc}) . ';',
            availability => $$self{availability});
-
-  # TODO: propagate availability for cut-through negotiation
 }
 ```
