@@ -41,7 +41,8 @@ sub jit_write
   my $n      = \shift;
   my $data   = \shift;
 
-  $jit->code(
+  $flow->jit_writable($jit, $self)
+       ->code(
     q{
       if ($inc == 1)
       {
@@ -52,7 +53,6 @@ sub jit_write
       {
         $$data[$offset + $i++] = $start += $inc while $i < $n;
       }
-      $into->writable($self);
       $n;
     },
     i      => my $i = 0,

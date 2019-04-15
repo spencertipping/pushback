@@ -38,10 +38,10 @@ sub jit_read
   my $n      = \shift;
   my $data   = \shift;
 
-  $jit->code(
+  $flow->jit_readable($jit, $self)
+       ->code(
     q{
       &$fn(@$data[$offset .. $offset + $n - 1]);
-      $from->readable($self);
       $n;
     },
     from   => $$self{from},

@@ -11,7 +11,10 @@ package pushback::process;
 ```perl
 sub jit_read;               # ($jit, $flow, $offset, $n, $data) -> $jit
 sub jit_write;              # ($jit, $flow, $offset, $n, $data) -> $jit
-sub eof;                    # ($flow, $error | undef) -> $self
+sub jit_readable;           # ($jit, $flow) -> $jit
+sub jit_writable;           # ($jit, $flow) -> $jit
 sub invalidate_jit_reader;  # ($flow) -> $self
 sub invalidate_jit_writer;  # ($flow) -> $self
+
+sub eof;                    # ($flow, $error | undef) -> $self
 ```

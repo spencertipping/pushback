@@ -6,37 +6,30 @@ switching between monomorphic and polymorphic modes.
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
 
-**FIXME:** process -> flow JIT invalidation is too aggressive; we need a way to
-say "this flow didn't change, so don't backpropagate if we're polymorphic"
-
-**TODO:** allocate a bitvector for read/write availability instead of using
-queues; then maintain reader/writer arrays instead of hashes (bitvector per
-simplex)
-
-**TODO:** JIT fragments to propagate availability
-
 ```perl
 package pushback::flow;
+
+use constant FLAG_CLOSED        => 0x01;
+use constant FLAG_REMAIN_OPEN   => 0x02;
+#use constant FLAG_NO_SPECIALIZE => 0x04;   TODO
 
 our $flowpoint_id = 0;
 sub new
 {
   my ($class, $name) = @_;
-  my @read_queue;
-  my @write_queue;
   bless { name          => $name // "_" . $flowpoint_id++,
-          read_queue    => \@read_queue,
-          write_queue   => \@write_queue,
-          read_simplex  => pushback::simplex->new(read  => \@read_queue),
-          write_simplex => pushback::simplex->new(write => \@write_queue),
-          remain_open   => 0,
-          closed        => 0 }, $class;
+          read_simplex  => pushback::simplex->new('read'),
+          write_simplex => pushback::simplex->new('write'),
+          flags         => 0 }, $class;
 }
+
+sub read_monomorphic  { shift->{read_simplex}->is_monomorphic }
+sub write_monomorphic { shift->{write_simplex}->is_monomorphic }
 
 sub remain_open
 {
-  my ($self, $remain_open) = @_;
-  $$self{remain_open} = $remain_open // 1;
+  my $self = shift;
+  $$self{flags} |= FLAG_REMAIN_OPEN;
   $self;
 }
 ```
@@ -48,8 +41,8 @@ sub add_reader;             # ($proc) -> $self
 sub add_writer;             # ($proc) -> $self
 sub remove_reader;          # ($proc) -> $self
 sub remove_writer;          # ($proc) -> $self
-sub invalidate_jit_readers; # () -> $self
-sub invalidate_jit_writers; # () -> $self
+sub invalidate_jit_readers; # ($transitively?) -> $self
+sub invalidate_jit_writers; # ($transitively?) -> $self
 
 # Non-JIT entry points
 sub handle_eof;             # ($proc) -> $early_exit?
@@ -58,12 +51,17 @@ sub write;                  # ($proc, $offset, $n, $data) -> $n
 sub close;                  # ($error?) -> $self
 sub readable;               # ($proc) -> $self
 sub writable;               # ($proc) -> $self
+```
 
-# JIT inliners for monomorphic reads/writes
-sub jit_read_fragment;      # ($jit, $proc, $offset, $n, $data) -> $jit
-sub jit_write_fragment;     # ($jit, $proc, $offset, $n, $data) -> $jit
-sub jit_mark_readable;      # ($jit, $proc) -> $jit
-sub jit_mark_writable;      # ($jit, $proc) -> $jit
+
+### JIT interface
+Processes use this to JIT their read/write ops for better throughput.
+
+```perl
+sub jit_read;               # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_write;              # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_readable;           # ($jit, $proc) -> $jit
+sub jit_writable;           # ($jit, $proc) -> $jit
 ```
 
 
@@ -87,8 +85,6 @@ sub remove_reader
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_writers if $$self{read_simplex}->remove($proc);
-  $$self{read_queue}
-    = [grep refaddr($_) != refaddr($proc), @{$$self{read_queue}}];
   $self;
 }
 
@@ -96,25 +92,24 @@ sub remove_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
-  $$self{write_queue}
-    = [grep refaddr($_) != refaddr($proc), @{$$self{write_queue}}];
-
-  $self->handle_eof($proc) unless $$self{write_simplex}->sources;
+  $self->handle_eof($proc) unless $$self{write_simplex}->responders;
   $self;
 }
 
 sub invalidate_jit_readers
 {
-  my $self = shift;
-  $_->invalidate_jit_reader($self) for $$self{read_simplex}->sources;
+  my ($self, $transitively) = @_;
+  $_->invalidate_jit_reader($self, $transitively)
+    for $$self{read_simplex}->responders;
   $$self{read_simplex}->invalidate_jit;
   $self;
 }
 
 sub invalidate_jit_writers
 {
-  my $self = shift;
-  $_->invalidate_jit_writer($self) for $$self{write_simplex}->sources;
+  my ($self, $transitively) = @_;
+  $_->invalidate_jit_writer($self, $transitively)
+    for $$self{write_simplex}->responders;
   $$self{write_simplex}->invalidate_jit;
   $self;
 }
@@ -132,7 +127,8 @@ cases:
 sub handle_eof
 {
   my ($self, $proc) = @_;
-  return 0 if $$self{remain_open} || $$self{write_simplex}->sources;
+  return 0 if $$self{flags} & FLAG_REMAIN_OPEN
+           || $$self{write_simplex}->responders;
   $self->close;
   1;
 }
@@ -146,23 +142,27 @@ sub close
   delete $$self{write_queue};
   delete $$self{read_simplex};
   delete $$self{write_simplex};
-  $$self{closed} = 1;
+  $$self{flags} = FLAG_CLOSED;
+  $self;
 }
 ```
 
 
 ## Non-JIT IO
-This is used when the node is polymorphic.
+This is used when the node is polymorphic. Monomorphic IO is inlined through the
+single responder, erasing this flow point from the resulting code.
 
 ```perl
 sub read
 {
   my $self = shift;
   my $proc = shift;
+
   die "usage: read(\$proc, \$offset, \$n, \$data)" unless ref $proc;
-  die "$proc cannot read from closed flow $self" if $$self{closed};
+  die "$proc cannot read from closed flow $self" if $$self{flags} & FLAG_CLOSED;
+
   my $n = $$self{write_simplex}->request($self, $proc, @_);
-  push @{$$self{read_queue}}, $proc if $n == pushback::simplex::PENDING;
+  $$self{read_simplex}->available($proc) if $n == pushback::simplex::PENDING;
   $n;
 }
 
@@ -170,24 +170,26 @@ sub write
 {
   my $self = shift;
   my $proc = shift;
+
   die "usage: write(\$proc, \$offset, \$n, \$data)" unless ref $proc;
-  die "$proc cannot write to closed flow $self" if $$self{closed};
+  die "$proc cannot write to closed flow $self" if $$self{flags} & FLAG_CLOSED;
+
   my $n = $$self{read_simplex}->request($self, $proc, @_);
-  push @{$$self{write_queue}}, $proc if $n == pushback::simplex::PENDING;
+  $$self{write_simplex}->available($proc) if $n == pushback::simplex::PENDING;
   $n;
 }
 
 sub readable
 {
   my ($self, $proc) = @_;
-  push @{$$self{read_queue}}, $proc;
+  $$self{read_simplex}->available($proc);
   $self;
 }
 
 sub writable
 {
   my ($self, $proc) = @_;
-  push @{$$self{write_queue}}, $proc;
+  $$self{write_simplex}->available($proc);
   $self;
 }
 ```
@@ -195,15 +197,27 @@ sub writable
 
 ## JIT logic
 ```perl
-sub jit_read_fragment
+sub jit_read
 {
   my $self = shift;
-  $$self{read_simplex}->jit_fragment($self, @_);
+  $$self{read_simplex}->jit_request($self, @_);
 }
 
-sub jit_write_fragment
+sub jit_write
 {
   my $self = shift;
-  $$self{write_simplex}->jit_fragment($self, @_);
+  $$self{write_simplex}->jit_request($self, @_);
+}
+
+sub jit_readable
+{
+  my ($self, $jit, $proc) = @_;
+  $$self{read_simplex}->jit_available($self, $jit, $proc);
+}
+
+sub jit_writable
+{
+  my ($self, $jit, $proc) = @_;
+  $$self{write_simplex}->jit_available($self, $jit, $proc);
 }
 ```
