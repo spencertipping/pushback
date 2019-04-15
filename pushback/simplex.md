@@ -28,6 +28,7 @@ sub new
           responder_fns => [] }, $class;
 }
 
+sub availability   { shift->{availability} }
 sub is_monomorphic { @{shift->{responders}} == 1 }
 sub responders     { @{shift->{responders}} }
 ```

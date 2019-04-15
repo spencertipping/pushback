@@ -1,15 +1,10 @@
 # Flow point
-An omnidirectional cut-through negotiation point for processes to exchange data.
-Flow points provide JIT read/write proxies and propagate invalidation when
-switching between monomorphic and polymorphic modes.
+An omnidirectional cut-through switch for processes to exchange data. Flow
+points provide JIT read/write proxies and propagate invalidation when switching
+between monomorphic and polymorphic modes.
 
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
-
-**TODO:** rename `readability` and `writability` etc to be clearer
-
-**TODO:** cut-through availability propagation
-
 
 ```perl
 package pushback::flow;
@@ -26,6 +21,9 @@ sub new
   bless { name          => $name // "_" . $flowpoint_id++,
           read_simplex  => pushback::simplex->new('read'),
           write_simplex => pushback::simplex->new('write'),
+
+          readable_fn   => undef,
+          writeable_fn  => undef,
           flags         => 0 }, $class;
 }
 
@@ -78,6 +76,7 @@ sub add_reader
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_writers if $$self{read_simplex}->add($proc);
+  $self->readable if $$self{write_simplex}->availability;
   $self;
 }
 
@@ -85,6 +84,7 @@ sub add_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->add($proc);
+  $self->writable if $$self{read_simplex}->availability;
   $self;
 }
 
@@ -191,14 +191,38 @@ sub write
 sub readable
 {
   my ($self, $proc) = @_;
-  $$self{read_simplex}->available($self, $proc);
+  $$self{read_simplex}->available($self, $proc) if defined $proc;
+
+  if (!defined $$self{readable_fn})
+  {
+    my $jit = pushback::jit->new
+      ->code('sub {');
+    $_->jit_flow_readable($jit, $self) for $$self{write_simplex}->responders;
+    ($$self{readable_fn} = $jit->code('}')->compile)->();
+  }
+  else
+  {
+    $$self{readable_fn}->();
+  }
   $self;
 }
 
 sub writable
 {
   my ($self, $proc) = @_;
-  $$self{write_simplex}->available($self, $proc);
+  $$self{write_simplex}->available($self, $proc) if defined $proc;
+
+  if (!defined $$self{writeable_fn})
+  {
+    my $jit = pushback::jit->new
+      ->code('sub {');
+    $_->jit_flow_writeable($jit, $self) for $$self{read_simplex}->responders;
+    ($$self{writeable_fn} = $jit->code('}')->compile)->();
+  }
+  else
+  {
+    $$self{writeable_fn}->();
+  }
   $self;
 }
 ```
@@ -222,11 +246,19 @@ sub jit_readable
 {
   my ($self, $jit, $proc) = @_;
   $$self{read_simplex}->jit_available($self, $jit, $proc);
+
+  # Notify writers that someone will reply to their read requests.
+  $_->jit_flow_readable($jit, $self) for $$self{write_simplex}->responders;
+  $jit;
 }
 
 sub jit_writable
 {
   my ($self, $jit, $proc) = @_;
   $$self{write_simplex}->jit_available($self, $jit, $proc);
+
+  # Notify readers that someone will reply to their write requests.
+  $_->jit_flow_writable($jit, $self) for $$self{read_simplex}->responders;
+  $jit;
 }
 ```

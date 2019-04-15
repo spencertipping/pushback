@@ -37,6 +37,8 @@ sub name
 }
 
 sub invalidate_jit_writer { shift }
+sub jit_flow_writable { $_[1] }
+sub jit_flow_readable { $_[1] }
 
 sub jit_write
 {

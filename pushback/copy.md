@@ -42,7 +42,7 @@ sub jit_read
   my $self = shift;
   my $jit  = shift;
   shift;
-  $$self{from}->jit_read_fragment($jit, $self, @_);
+  $$self{from}->jit_read($jit, $self, @_);
 }
 
 sub jit_write
@@ -50,7 +50,19 @@ sub jit_write
   my $self = shift;
   my $jit  = shift;
   shift;
-  $$self{to}->jit_write_fragment($jit, $self, @_);
+  $$self{to}->jit_write($jit, $self, @_);
+}
+
+sub jit_flow_readable
+{
+  my ($self, $jit, $flow) = @_;
+  $$self{to}->jit_readable($jit, $self);
+}
+
+sub jit_flow_writable
+{
+  my ($self, $jit, $flow) = @_;
+  $$self{from}->jit_writable($jit, $self);
 }
 
 sub eof
