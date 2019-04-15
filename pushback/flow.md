@@ -6,6 +6,10 @@ between monomorphic and polymorphic modes.
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
 
+**TODO:** push more duplicated logic into simplex
+
+**TODO:** clean up JIT invalidation, especially around availability
+
 ```perl
 package pushback::flow;
 use overload qw/ "" name /;
@@ -23,7 +27,7 @@ sub new
           write_simplex => pushback::simplex->new('write'),
 
           readable_fn   => undef,
-          writeable_fn  => undef,
+          writable_fn   => undef,
           flags         => 0 }, $class;
 }
 
@@ -76,7 +80,8 @@ sub add_reader
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_writers if $$self{read_simplex}->add($proc);
-  $self->readable if $$self{write_simplex}->availability;
+  $$self{writable_fn} = undef;
+  $self->writable if $$self{read_simplex}->is_available;
   $self;
 }
 
@@ -84,7 +89,8 @@ sub add_writer
 {
   my ($self, $proc) = @_;
   $self->invalidate_jit_readers if $$self{write_simplex}->add($proc);
-  $self->writable if $$self{read_simplex}->availability;
+  $$self{readable_fn} = undef;
+  $self->readable if $$self{write_simplex}->is_available;
   $self;
 }
 
@@ -212,16 +218,16 @@ sub writable
   my ($self, $proc) = @_;
   $$self{write_simplex}->available($self, $proc) if defined $proc;
 
-  if (!defined $$self{writeable_fn})
+  if (!defined $$self{writable_fn})
   {
     my $jit = pushback::jit->new
       ->code('sub {');
-    $_->jit_flow_writeable($jit, $self) for $$self{read_simplex}->responders;
-    ($$self{writeable_fn} = $jit->code('}')->compile)->();
+    $_->jit_flow_writable($jit, $self) for $$self{read_simplex}->responders;
+    ($$self{writable_fn} = $jit->code('}')->compile)->();
   }
   else
   {
-    $$self{writeable_fn}->();
+    $$self{writable_fn}->();
   }
   $self;
 }

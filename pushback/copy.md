@@ -8,7 +8,8 @@ $ perl -I. -Mpushback -e '
     my $flow2 = pushback::flow->new;
     my $copy  = pushback::copy->new($flow1, $flow2);
     my @xs;
-    $flow2->read(undef, 0, 4, \@xs);
+    my $n = $flow2->read(undef, 0, 4, \@xs);
+    die "womp womp, $n" if $n != 4;
     print "$_\n" for @xs'
 0
 1
