@@ -1,5 +1,5 @@
 # Simplex negotiators
-[Flow points](flow.md) match every `read` request with a corresponding `write`
+[Flow points](flow.md) match every `fp` request with a corresponding `pf`
 response and vice versa. That logic is managed by simplexes, which negotiate one
 side of a full-duplex flow point.
 
@@ -8,11 +8,20 @@ point has only one source of replies, then we can inline its logic directly into
 callers' JIT contexts. This effectively erases the flow point and availability
 negotiation from the resulting code.
 
+Simplexes have one or more "responders", which are objects that can serve
+requests for whichever side the simplex is handling. A `pf` simplex's responders
+are `fp`. Any given request will either be serviced immediately (if a responder
+is ready) or indicated as availability on the opposing simplex.
+
+JIT is from the requester's perspective; simplexes don't manage JIT along the
+reply direction.
+
+
 ```perl
 package pushback::simplex;
-use Scalar::Util qw/refaddr/;
+use Scalar::Util qw/refaddr weaken/;
 
-# read()/write() results (also used in JIT fragments)
+# fp()/pf() results (also used in JIT fragments)
 use constant NOP     =>  0;
 use constant PENDING => -1;
 use constant EOF     => -2;
@@ -20,30 +29,35 @@ use constant RETRY   => -3;
 
 sub new
 {
-  my ($class, $mode, $queue) = @_;
+  my ($class, $mode) = @_;
   bless { mode          => $mode,
-          availability  => 0,
-          responder_idx => {},
+          opposite      => undef,
+          linked        => undef,
+
+          ready         => 0,       # bitmask: 1 << $i == $responders[$i]
           responders    => [],
-          responder_fns => [] }, $class;
+          responder_fns => [],
+          responder_idx => {} }, $class;
 }
 
-sub is_available   { shift->{availability} }
-sub is_monomorphic { @{shift->{responders}} == 1 }
-sub responders     { @{shift->{responders}} }
+sub link
+{
+  my $self = shift;
+  weaken($$self{linked} = shift);
+  $$self{opposite} = $$self{linked}{mode};
+  $self;
+}
 ```
 
 
 ## Flow-facing API
 ```perl
-sub add;                    # ($proc) -> $invalidate_jit?
-sub remove;                 # ($proc) -> $invalidate_jit?
-sub invalidate_jit;         # () -> $self
-sub request;                # ($flow, $proc, $offset, $n, $data) -> $n
-sub available;              # ($flow, $proc) -> $self
+sub add;                    # ($proc) -> $self
+sub remove;                 # ($proc) -> $self
 
+sub invalidate_jit;         # () -> $self
 sub jit_request;            # ($flow, $jit, $proc, $offset, $n, $data) -> $jit
-sub jit_available;          # ($flow, $jit, $proc) -> $jit
+sub jit_mark_ready;         # ($flow, $jit, $proc) -> $jit
 ```
 
 
@@ -55,9 +69,10 @@ sub add
   my $rs = $$self{responders};
   $$self{responder_idx}{refaddr $proc} = push(@$rs, $proc) - 1;
   push @{$$self{responder_fns}}, undef;
-
   die "can't add more than 64 processes to a flow simplex" if @$rs > 64;
-  @$rs < 3;
+
+  $$self{linked}->invalidate_jit if defined $$self{linked};
+  $self->invalidate_jit;
 }
 
 sub remove
@@ -67,8 +82,6 @@ sub remove
   my $i  = $$self{responder_idx}{refaddr $proc}
     // die "$proc is not present, so can't be removed";
 
-  # TODO: don't move any responders; just create a hole in the array. That will
-  # cut down on the amount of JIT invalidation required.
   splice @$rs, $i, 1;
   splice @{$$self{responder_fns}}, $i, 1;
 
@@ -76,18 +89,12 @@ sub remove
   $$self{responder_idx}{refaddr $$rs[$_]} = $_ for $i..$#$rs;
 
   # Splice the availability bitvector to shift indexes
-  my $keep_bits  = $$self{availability} & ~(-1 << $i);
-  my $shift_bits = $$self{availability} &   -2 << $i;
-  $$self{availability} = $shift_bits >> 1 | $keep_bits;
+  my $keep_bits  = $$self{ready} & ~(-1 << $i);
+  my $shift_bits = $$self{ready} &   -2 << $i;
+  $$self{ready} = $shift_bits >> 1 | $keep_bits;
 
-  @$rs < 2;
-}
-
-sub invalidate_jit
-{
-  my $self = shift;
-  @{$$self{responder_fns}} = map undef, @{$$self{responders}};
-  $self;
+  $$self{linked}->invalidate_jit if defined $$self{linked};
+  $self->invalidate_jit;
 }
 ```
 
@@ -183,7 +190,17 @@ sub available
 
 
 ## JIT logic
+`invalidate_jit` means "if you are a requester, your JIT logic is now out of
+date".
+
 ```perl
+sub invalidate_jit
+{
+  my $self = shift;
+  @{$$self{responder_fns}} = map undef, @{$$self{responders}};
+  $self;
+}
+
 sub jit_request
 {
   my $self   = shift;

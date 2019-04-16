@@ -99,11 +99,11 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
-#line 12 "pushback/simplex.md"
+#line 21 "pushback/simplex.md"
 package pushback::simplex;
-use Scalar::Util qw/refaddr/;
+use Scalar::Util qw/refaddr weaken/;
 
-# read()/write() results (also used in JIT fragments)
+# fp()/pf() results (also used in JIT fragments)
 use constant NOP     =>  0;
 use constant PENDING => -1;
 use constant EOF     => -2;
@@ -111,36 +111,42 @@ use constant RETRY   => -3;
 
 sub new
 {
-  my ($class, $mode, $queue) = @_;
+  my ($class, $mode) = @_;
   bless { mode          => $mode,
-          availability  => 0,
-          responder_idx => {},
+          opposite      => undef,
+          linked        => undef,
+
+          ready         => 0,       # bitmask: 1 << $i == $responders[$i]
           responders    => [],
-          responder_fns => [] }, $class;
+          responder_fns => [],
+          responder_idx => {} }, $class;
 }
 
-sub is_available   { shift->{availability} }
-sub is_monomorphic { @{shift->{responders}} == 1 }
-sub responders     { @{shift->{responders}} }
-#line 39 "pushback/simplex.md"
-sub add;                    # ($proc) -> $invalidate_jit?
-sub remove;                 # ($proc) -> $invalidate_jit?
-sub invalidate_jit;         # () -> $self
-sub request;                # ($flow, $proc, $offset, $n, $data) -> $n
-sub available;              # ($flow, $proc) -> $self
+sub link
+{
+  my $self = shift;
+  weaken($$self{linked} = shift);
+  $$self{opposite} = $$self{linked}{mode};
+  $self;
+}
+#line 55 "pushback/simplex.md"
+sub add;                    # ($proc) -> $self
+sub remove;                 # ($proc) -> $self
 
+sub invalidate_jit;         # () -> $self
 sub jit_request;            # ($flow, $jit, $proc, $offset, $n, $data) -> $jit
-sub jit_available;          # ($flow, $jit, $proc) -> $jit
-#line 52 "pushback/simplex.md"
+sub jit_mark_ready;         # ($flow, $jit, $proc) -> $jit
+#line 66 "pushback/simplex.md"
 sub add
 {
   my ($self, $proc) = @_;
   my $rs = $$self{responders};
   $$self{responder_idx}{refaddr $proc} = push(@$rs, $proc) - 1;
   push @{$$self{responder_fns}}, undef;
-
   die "can't add more than 64 processes to a flow simplex" if @$rs > 64;
-  @$rs < 3;
+
+  $$self{linked}->invalidate_jit if defined $$self{linked};
+  $self->invalidate_jit;
 }
 
 sub remove
@@ -150,8 +156,6 @@ sub remove
   my $i  = $$self{responder_idx}{refaddr $proc}
     // die "$proc is not present, so can't be removed";
 
-  # TODO: don't move any responders; just create a hole in the array. That will
-  # cut down on the amount of JIT invalidation required.
   splice @$rs, $i, 1;
   splice @{$$self{responder_fns}}, $i, 1;
 
@@ -159,20 +163,14 @@ sub remove
   $$self{responder_idx}{refaddr $$rs[$_]} = $_ for $i..$#$rs;
 
   # Splice the availability bitvector to shift indexes
-  my $keep_bits  = $$self{availability} & ~(-1 << $i);
-  my $shift_bits = $$self{availability} &   -2 << $i;
-  $$self{availability} = $shift_bits >> 1 | $keep_bits;
+  my $keep_bits  = $$self{ready} & ~(-1 << $i);
+  my $shift_bits = $$self{ready} &   -2 << $i;
+  $$self{ready} = $shift_bits >> 1 | $keep_bits;
 
-  @$rs < 2;
+  $$self{linked}->invalidate_jit if defined $$self{linked};
+  $self->invalidate_jit;
 }
-
-sub invalidate_jit
-{
-  my $self = shift;
-  @{$$self{responder_fns}} = map undef, @{$$self{responders}};
-  $self;
-}
-#line 100 "pushback/simplex.md"
+#line 107 "pushback/simplex.md"
 sub process_fn
 {
   my ($self, $flow, $i) = @_;
@@ -255,7 +253,14 @@ sub available
   $$self{availability} |= 1 << $i;
   $self;
 }
-#line 187 "pushback/simplex.md"
+#line 197 "pushback/simplex.md"
+sub invalidate_jit
+{
+  my $self = shift;
+  @{$$self{responder_fns}} = map undef, @{$$self{responders}};
+  $self;
+}
+
 sub jit_request
 {
   my $self   = shift;
@@ -290,7 +295,7 @@ sub jit_available
            . (1 << $$self{responder_idx}{refaddr $proc}) . ';',
            availability => $$self{availability});
 }
-#line 14 "pushback/flow.md"
+#line 16 "pushback/flow.md"
 package pushback::flow;
 use overload qw/ "" name /;
 
@@ -302,18 +307,18 @@ our $flowpoint_id = 0;
 sub new
 {
   my ($class, $name) = @_;
-  bless { name          => $name // "_" . $flowpoint_id++,
-          read_simplex  => pushback::simplex->new('read'),
-          write_simplex => pushback::simplex->new('write'),
+  my $fp_simplex = pushback::simplex->new('fp');
+  my $pf_simplex = pushback::simplex->new('pf');
+  $fp_simplex->link($pf_simplex);
+  $pf_simplex->link($fp_simplex);
 
-          readable_fn   => undef,
-          writable_fn   => undef,
-          flags         => 0 }, $class;
+  bless { name       => $name // "_" . $flowpoint_id++,
+          fp_simplex => $fp_simplex,
+          pf_simplex => $pf_simplex,
+          flags      => 0 }, $class;
 }
 
-sub read_monomorphic  { shift->{read_simplex}->is_monomorphic }
-sub write_monomorphic { shift->{write_simplex}->is_monomorphic }
-sub name              { shift->{name} }
+sub name { shift->{name} }
 
 sub remain_open
 {
@@ -321,83 +326,79 @@ sub remain_open
   $$self{flags} |= FLAG_REMAIN_OPEN;
   $self;
 }
-#line 49 "pushback/flow.md"
-sub add_reader;             # ($proc) -> $self
-sub add_writer;             # ($proc) -> $self
-sub remove_reader;          # ($proc) -> $self
-sub remove_writer;          # ($proc) -> $self
-sub invalidate_jit_readers; # ($transitively?) -> $self
-sub invalidate_jit_writers; # ($transitively?) -> $self
+#line 51 "pushback/flow.md"
+sub add_fp;                 # ($proc) -> $self
+sub add_pf;                 # ($proc) -> $self
+sub remove_fp;              # ($proc) -> $self
+sub remove_pf;              # ($proc) -> $self
+sub invalidate_fp_jit;      # ($transitively?) -> $self
+sub invalidate_pf_jit;      # ($transitively?) -> $self
 
 # Non-JIT entry points
-sub handle_eof;             # ($proc) -> $early_exit?
-sub read;                   # ($proc, $offset, $n, $data) -> $n
-sub write;                  # ($proc, $offset, $n, $data) -> $n
 sub close;                  # ($error?) -> $self
-sub readable;               # ($proc) -> $self
-sub writable;               # ($proc) -> $self
-#line 70 "pushback/flow.md"
-sub jit_read;               # ($jit, $proc, $offset, $n, $data) -> $jit
-sub jit_write;              # ($jit, $proc, $offset, $n, $data) -> $jit
-sub jit_readable;           # ($jit, $proc) -> $jit
-sub jit_writable;           # ($jit, $proc) -> $jit
-#line 79 "pushback/flow.md"
-sub add_reader
+sub handle_eof;             # ($proc) -> $early_exit?
+#line 68 "pushback/flow.md"
+sub jit_fp;                 # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_pf;                 # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_fp_set_fpy;         # ($jit, $proc) -> $jit
+sub jit_pf_set_fpy;         # ($jit, $proc) -> $jit
+#line 77 "pushback/flow.md"
+sub add_fp
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_writers if $$self{read_simplex}->add($proc);
+  $self->invalidate_jit_pfs if $$self{fp_simplex}->add($proc);
   $$self{writable_fn} = undef;
-  $self->writable if $$self{read_simplex}->is_available;
+  $self->writable if $$self{fp_simplex}->is_available;
   $self;
 }
 
-sub add_writer
+sub add_pf
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_readers if $$self{write_simplex}->add($proc);
-  $$self{readable_fn} = undef;
-  $self->readable if $$self{write_simplex}->is_available;
+  $self->invalidate_jit_fps if $$self{pf_simplex}->add($proc);
+  $$self{fpable_fn} = undef;
+  $self->fpable if $$self{pf_simplex}->is_available;
   $self;
 }
 
-sub remove_reader
+sub remove_fp
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_writers if $$self{read_simplex}->remove($proc);
+  $self->invalidate_jit_pfs if $$self{fp_simplex}->remove($proc);
   $self;
 }
 
-sub remove_writer
+sub remove_pf
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
-  $self->handle_eof($proc) unless $$self{write_simplex}->responders;
+  $self->invalidate_jit_fps if $$self{pf_simplex}->remove($proc);
+  $self->handle_eof($proc) unless $$self{pf_simplex}->responders;
   $self;
 }
 
-sub invalidate_jit_readers
+sub invalidate_jit_fps
 {
   my ($self, $transitively) = @_;
-  $_->invalidate_jit_reader($self, $transitively)
-    for $$self{read_simplex}->responders;
-  $$self{read_simplex}->invalidate_jit;
+  $_->invalidate_jit_fp($self, $transitively)
+    for $$self{fp_simplex}->responders;
+  $$self{fp_simplex}->invalidate_jit;
   $self;
 }
 
-sub invalidate_jit_writers
+sub invalidate_jit_pfs
 {
   my ($self, $transitively) = @_;
-  $_->invalidate_jit_writer($self, $transitively)
-    for $$self{write_simplex}->responders;
-  $$self{write_simplex}->invalidate_jit;
+  $_->invalidate_jit_pf($self, $transitively)
+    for $$self{pf_simplex}->responders;
+  $$self{pf_simplex}->invalidate_jit;
   $self;
 }
-#line 140 "pushback/flow.md"
+#line 138 "pushback/flow.md"
 sub handle_eof
 {
   my ($self, $proc) = @_;
   return 0 if $$self{flags} & FLAG_REMAIN_OPEN
-           || $$self{write_simplex}->responders;
+           || $$self{pf_simplex}->responders;
   $self->close;
   1;
 }
@@ -405,59 +406,59 @@ sub handle_eof
 sub close
 {
   my ($self, $error) = @_;
-  $_->eof($self, $error) for $$self{read_simplex}->responders;
-  $self->invalidate_jit_writers;
-  delete $$self{read_queue};
-  delete $$self{write_queue};
-  delete $$self{read_simplex};
-  delete $$self{write_simplex};
+  $_->eof($self, $error) for $$self{fp_simplex}->responders;
+  $self->invalidate_jit_pfs;
+  delete $$self{fp_queue};
+  delete $$self{pf_queue};
+  delete $$self{fp_simplex};
+  delete $$self{pf_simplex};
   $$self{flags} = FLAG_CLOSED;
   $self;
 }
-#line 169 "pushback/flow.md"
-sub read
+#line 167 "pushback/flow.md"
+sub fp
 {
   my $self = shift;
   my $proc = shift;
 
-  die "usage: read(\$proc, \$offset, \$n, \$data)" if @_ < 3;
-  die "$proc cannot read from closed flow $self" if $$self{flags} & FLAG_CLOSED;
+  die "usage: fp(\$proc, \$offset, \$n, \$data)" if @_ < 3;
+  die "$proc cannot fp from closed flow $self" if $$self{flags} & FLAG_CLOSED;
 
-  my $n = $$self{write_simplex}->request($self, $proc, @_);
-  $$self{read_simplex}->available($self, $proc)
+  my $n = $$self{pf_simplex}->request($self, $proc, @_);
+  $$self{fp_simplex}->available($self, $proc)
     if defined $proc and $n == pushback::simplex::PENDING;
   $n;
 }
 
-sub write
+sub pf
 {
   my $self = shift;
   my $proc = shift;
 
-  die "usage: write(\$proc, \$offset, \$n, \$data)" if @_ < 3;
-  die "$proc cannot write to closed flow $self" if $$self{flags} & FLAG_CLOSED;
+  die "usage: pf(\$proc, \$offset, \$n, \$data)" if @_ < 3;
+  die "$proc cannot pf to closed flow $self" if $$self{flags} & FLAG_CLOSED;
 
-  my $n = $$self{read_simplex}->request($self, $proc, @_);
-  $$self{write_simplex}->available($self, $proc)
+  my $n = $$self{fp_simplex}->request($self, $proc, @_);
+  $$self{pf_simplex}->available($self, $proc)
     if defined $proc and $n == pushback::simplex::PENDING;
   $n;
 }
 
-sub readable
+sub fpable
 {
   my ($self, $proc) = @_;
-  $$self{read_simplex}->available($self, $proc) if defined $proc;
+  $$self{fp_simplex}->available($self, $proc) if defined $proc;
 
-  if (!defined $$self{readable_fn})
+  if (!defined $$self{fpable_fn})
   {
     my $jit = pushback::jit->new
       ->code('sub {');
-    $_->jit_flow_readable($jit, $self) for $$self{write_simplex}->responders;
-    ($$self{readable_fn} = $jit->code('}')->compile)->();
+    $_->jit_flow_fpable($jit, $self) for $$self{pf_simplex}->responders;
+    ($$self{fpable_fn} = $jit->code('}')->compile)->();
   }
   else
   {
-    $$self{readable_fn}->();
+    $$self{fpable_fn}->();
   }
   $self;
 }
@@ -465,13 +466,13 @@ sub readable
 sub writable
 {
   my ($self, $proc) = @_;
-  $$self{write_simplex}->available($self, $proc) if defined $proc;
+  $$self{pf_simplex}->available($self, $proc) if defined $proc;
 
   if (!defined $$self{writable_fn})
   {
     my $jit = pushback::jit->new
       ->code('sub {');
-    $_->jit_flow_writable($jit, $self) for $$self{read_simplex}->responders;
+    $_->jit_flow_writable($jit, $self) for $$self{fp_simplex}->responders;
     ($$self{writable_fn} = $jit->code('}')->compile)->();
   }
   else
@@ -480,36 +481,36 @@ sub writable
   }
   $self;
 }
-#line 239 "pushback/flow.md"
-sub jit_read
+#line 237 "pushback/flow.md"
+sub jit_fp
 {
   my $self = shift;
-  $$self{read_simplex}->jit_request($self, @_);
+  $$self{fp_simplex}->jit_request($self, @_);
 }
 
-sub jit_write
+sub jit_pf
 {
   my $self = shift;
-  $$self{write_simplex}->jit_request($self, @_);
+  $$self{pf_simplex}->jit_request($self, @_);
 }
 
-sub jit_readable
+sub jit_fpable
 {
   my ($self, $jit, $proc) = @_;
-  $$self{read_simplex}->jit_available($self, $jit, $proc);
+  $$self{fp_simplex}->jit_available($self, $jit, $proc);
 
-  # Notify writers that someone will reply to their read requests.
-  $_->jit_flow_readable($jit, $self) for $$self{write_simplex}->responders;
+  # Notify pfs that someone will reply to their fp requests.
+  $_->jit_flow_fpable($jit, $self) for $$self{pf_simplex}->responders;
   $jit;
 }
 
 sub jit_writable
 {
   my ($self, $jit, $proc) = @_;
-  $$self{write_simplex}->jit_available($self, $jit, $proc);
+  $$self{pf_simplex}->jit_available($self, $jit, $proc);
 
-  # Notify readers that someone will reply to their write requests.
-  $_->jit_flow_writable($jit, $self) for $$self{read_simplex}->responders;
+  # Notify fps that someone will reply to their pf requests.
+  $_->jit_flow_writable($jit, $self) for $$self{fp_simplex}->responders;
   $jit;
 }
 #line 6 "pushback/process.md"
@@ -517,15 +518,17 @@ package pushback::process;
 use overload qw/ "" name /;
 #line 13 "pushback/process.md"
 sub name;                   # ($self) -> $name
+sub fp_eof;                 # ($flow, $error | undef) -> $self
 
-sub jit_read;               # ($jit, $flow, $offset, $n, $data) -> $jit
-sub jit_write;              # ($jit, $flow, $offset, $n, $data) -> $jit
-sub jit_flow_readable;      # ($jit, $flow) -> $jit
-sub jit_flow_writable;      # ($jit, $flow) -> $jit
-sub invalidate_jit_reader;  # ($flow) -> $self
-sub invalidate_jit_writer;  # ($flow) -> $self
-
-sub eof;                    # ($flow, $error | undef) -> $self
+sub jit_fp;                 # ($jit, $flow, $offset, $n, $data) -> $jit
+sub jit_pf;                 # ($jit, $flow, $offset, $n, $data) -> $jit
+sub jit_fp_ready;           # ($jit, $flow) -> $jit
+sub jit_pf_ready;           # ($jit, $flow) -> $jit
+sub invalidate_fp_jit;      # ($flow) -> $self
+sub invalidate_pf_jit;      # ($flow) -> $self
+#line 27 "pushback/process.md"
+sub jit_fp_ready { $_[1] }  # nop: readiness is mostly for passthrough.
+sub jit_pf_ready { $_[1] }
 #line 22 "pushback/copy.md"
 package pushback::copy;
 push our @ISA, qw/pushback::process/;

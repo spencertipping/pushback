@@ -1,14 +1,16 @@
 # Flow point
 An omnidirectional cut-through switch for processes to exchange data. Flow
-points provide JIT read/write proxies and propagate invalidation when switching
+points provide JIT fp/pf proxies and propagate invalidation when switching
 between monomorphic and polymorphic modes.
+
+Flow points act as switches, which means they match fps and pfs. This
+results in confusing language unless we're careful, so all methods specify
+either `fp` (flowpoint to process) or `pf` (process to flowpoint). Any other
+terminology is always from the flow point's perspective; "egress" would always
+mean `fp`.
 
 Most of the mechanics of flow negotiation are delegated to [simplex
 objects](simplex.md).
-
-**TODO:** push more duplicated logic into simplex
-
-**TODO:** clean up JIT invalidation, especially around availability
 
 ```perl
 package pushback::flow;
@@ -22,18 +24,18 @@ our $flowpoint_id = 0;
 sub new
 {
   my ($class, $name) = @_;
-  bless { name          => $name // "_" . $flowpoint_id++,
-          read_simplex  => pushback::simplex->new('read'),
-          write_simplex => pushback::simplex->new('write'),
+  my $fp_simplex = pushback::simplex->new('fp');
+  my $pf_simplex = pushback::simplex->new('pf');
+  $fp_simplex->link($pf_simplex);
+  $pf_simplex->link($fp_simplex);
 
-          readable_fn   => undef,
-          writable_fn   => undef,
-          flags         => 0 }, $class;
+  bless { name       => $name // "_" . $flowpoint_id++,
+          fp_simplex => $fp_simplex,
+          pf_simplex => $pf_simplex,
+          flags      => 0 }, $class;
 }
 
-sub read_monomorphic  { shift->{read_simplex}->is_monomorphic }
-sub write_monomorphic { shift->{write_simplex}->is_monomorphic }
-sub name              { shift->{name} }
+sub name { shift->{name} }
 
 sub remain_open
 {
@@ -46,102 +48,98 @@ sub remain_open
 
 ## Process-facing API
 ```perl
-sub add_reader;             # ($proc) -> $self
-sub add_writer;             # ($proc) -> $self
-sub remove_reader;          # ($proc) -> $self
-sub remove_writer;          # ($proc) -> $self
-sub invalidate_jit_readers; # ($transitively?) -> $self
-sub invalidate_jit_writers; # ($transitively?) -> $self
+sub add_fp;                 # ($proc) -> $self
+sub add_pf;                 # ($proc) -> $self
+sub remove_fp;              # ($proc) -> $self
+sub remove_pf;              # ($proc) -> $self
+sub invalidate_fp_jit;      # ($transitively?) -> $self
+sub invalidate_pf_jit;      # ($transitively?) -> $self
 
 # Non-JIT entry points
-sub handle_eof;             # ($proc) -> $early_exit?
-sub read;                   # ($proc, $offset, $n, $data) -> $n
-sub write;                  # ($proc, $offset, $n, $data) -> $n
 sub close;                  # ($error?) -> $self
-sub readable;               # ($proc) -> $self
-sub writable;               # ($proc) -> $self
+sub handle_eof;             # ($proc) -> $early_exit?
 ```
 
 
 ### JIT interface
-Processes use this to JIT their read/write ops for better throughput.
+Processes use this to JIT their fp/pf ops for better throughput.
 
 ```perl
-sub jit_read;               # ($jit, $proc, $offset, $n, $data) -> $jit
-sub jit_write;              # ($jit, $proc, $offset, $n, $data) -> $jit
-sub jit_readable;           # ($jit, $proc) -> $jit
-sub jit_writable;           # ($jit, $proc) -> $jit
+sub jit_fp;                 # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_pf;                 # ($jit, $proc, $offset, $n, $data) -> $jit
+sub jit_fp_set_fpy;         # ($jit, $proc) -> $jit
+sub jit_pf_set_fpy;         # ($jit, $proc) -> $jit
 ```
 
 
 ## Process connections
 ```perl
-sub add_reader
+sub add_fp
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_writers if $$self{read_simplex}->add($proc);
+  $self->invalidate_jit_pfs if $$self{fp_simplex}->add($proc);
   $$self{writable_fn} = undef;
-  $self->writable if $$self{read_simplex}->is_available;
+  $self->writable if $$self{fp_simplex}->is_available;
   $self;
 }
 
-sub add_writer
+sub add_pf
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_readers if $$self{write_simplex}->add($proc);
-  $$self{readable_fn} = undef;
-  $self->readable if $$self{write_simplex}->is_available;
+  $self->invalidate_jit_fps if $$self{pf_simplex}->add($proc);
+  $$self{fpable_fn} = undef;
+  $self->fpable if $$self{pf_simplex}->is_available;
   $self;
 }
 
-sub remove_reader
+sub remove_fp
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_writers if $$self{read_simplex}->remove($proc);
+  $self->invalidate_jit_pfs if $$self{fp_simplex}->remove($proc);
   $self;
 }
 
-sub remove_writer
+sub remove_pf
 {
   my ($self, $proc) = @_;
-  $self->invalidate_jit_readers if $$self{write_simplex}->remove($proc);
-  $self->handle_eof($proc) unless $$self{write_simplex}->responders;
+  $self->invalidate_jit_fps if $$self{pf_simplex}->remove($proc);
+  $self->handle_eof($proc) unless $$self{pf_simplex}->responders;
   $self;
 }
 
-sub invalidate_jit_readers
+sub invalidate_jit_fps
 {
   my ($self, $transitively) = @_;
-  $_->invalidate_jit_reader($self, $transitively)
-    for $$self{read_simplex}->responders;
-  $$self{read_simplex}->invalidate_jit;
+  $_->invalidate_jit_fp($self, $transitively)
+    for $$self{fp_simplex}->responders;
+  $$self{fp_simplex}->invalidate_jit;
   $self;
 }
 
-sub invalidate_jit_writers
+sub invalidate_jit_pfs
 {
   my ($self, $transitively) = @_;
-  $_->invalidate_jit_writer($self, $transitively)
-    for $$self{write_simplex}->responders;
-  $$self{write_simplex}->invalidate_jit;
+  $_->invalidate_jit_pf($self, $transitively)
+    for $$self{pf_simplex}->responders;
+  $$self{pf_simplex}->invalidate_jit;
   $self;
 }
 ```
 
 ## EOF
-This is kind of subtle. Readers can ignore one writer's EOF in either of two
+This is kind of subtle. Readers can ignore one pf's EOF in either of two
 cases:
 
-1. There are more writers
-2. The flow point is set to remain open after the last writer returns EOF
-   (presumably more writers will be added later)
+1. There are more pfs
+2. The flow point is set to remain open after the last pf returns EOF
+   (presumably more pfs will be added later)
 
 ```perl
 sub handle_eof
 {
   my ($self, $proc) = @_;
   return 0 if $$self{flags} & FLAG_REMAIN_OPEN
-           || $$self{write_simplex}->responders;
+           || $$self{pf_simplex}->responders;
   $self->close;
   1;
 }
@@ -149,12 +147,12 @@ sub handle_eof
 sub close
 {
   my ($self, $error) = @_;
-  $_->eof($self, $error) for $$self{read_simplex}->responders;
-  $self->invalidate_jit_writers;
-  delete $$self{read_queue};
-  delete $$self{write_queue};
-  delete $$self{read_simplex};
-  delete $$self{write_simplex};
+  $_->eof($self, $error) for $$self{fp_simplex}->responders;
+  $self->invalidate_jit_pfs;
+  delete $$self{fp_queue};
+  delete $$self{pf_queue};
+  delete $$self{fp_simplex};
+  delete $$self{pf_simplex};
   $$self{flags} = FLAG_CLOSED;
   $self;
 }
@@ -166,49 +164,49 @@ This is used when the node is polymorphic. Monomorphic IO is inlined through the
 single responder, erasing this flow point from the resulting code.
 
 ```perl
-sub read
+sub fp
 {
   my $self = shift;
   my $proc = shift;
 
-  die "usage: read(\$proc, \$offset, \$n, \$data)" if @_ < 3;
-  die "$proc cannot read from closed flow $self" if $$self{flags} & FLAG_CLOSED;
+  die "usage: fp(\$proc, \$offset, \$n, \$data)" if @_ < 3;
+  die "$proc cannot fp from closed flow $self" if $$self{flags} & FLAG_CLOSED;
 
-  my $n = $$self{write_simplex}->request($self, $proc, @_);
-  $$self{read_simplex}->available($self, $proc)
+  my $n = $$self{pf_simplex}->request($self, $proc, @_);
+  $$self{fp_simplex}->available($self, $proc)
     if defined $proc and $n == pushback::simplex::PENDING;
   $n;
 }
 
-sub write
+sub pf
 {
   my $self = shift;
   my $proc = shift;
 
-  die "usage: write(\$proc, \$offset, \$n, \$data)" if @_ < 3;
-  die "$proc cannot write to closed flow $self" if $$self{flags} & FLAG_CLOSED;
+  die "usage: pf(\$proc, \$offset, \$n, \$data)" if @_ < 3;
+  die "$proc cannot pf to closed flow $self" if $$self{flags} & FLAG_CLOSED;
 
-  my $n = $$self{read_simplex}->request($self, $proc, @_);
-  $$self{write_simplex}->available($self, $proc)
+  my $n = $$self{fp_simplex}->request($self, $proc, @_);
+  $$self{pf_simplex}->available($self, $proc)
     if defined $proc and $n == pushback::simplex::PENDING;
   $n;
 }
 
-sub readable
+sub fpable
 {
   my ($self, $proc) = @_;
-  $$self{read_simplex}->available($self, $proc) if defined $proc;
+  $$self{fp_simplex}->available($self, $proc) if defined $proc;
 
-  if (!defined $$self{readable_fn})
+  if (!defined $$self{fpable_fn})
   {
     my $jit = pushback::jit->new
       ->code('sub {');
-    $_->jit_flow_readable($jit, $self) for $$self{write_simplex}->responders;
-    ($$self{readable_fn} = $jit->code('}')->compile)->();
+    $_->jit_flow_fpable($jit, $self) for $$self{pf_simplex}->responders;
+    ($$self{fpable_fn} = $jit->code('}')->compile)->();
   }
   else
   {
-    $$self{readable_fn}->();
+    $$self{fpable_fn}->();
   }
   $self;
 }
@@ -216,13 +214,13 @@ sub readable
 sub writable
 {
   my ($self, $proc) = @_;
-  $$self{write_simplex}->available($self, $proc) if defined $proc;
+  $$self{pf_simplex}->available($self, $proc) if defined $proc;
 
   if (!defined $$self{writable_fn})
   {
     my $jit = pushback::jit->new
       ->code('sub {');
-    $_->jit_flow_writable($jit, $self) for $$self{read_simplex}->responders;
+    $_->jit_flow_writable($jit, $self) for $$self{fp_simplex}->responders;
     ($$self{writable_fn} = $jit->code('}')->compile)->();
   }
   else
@@ -236,35 +234,35 @@ sub writable
 
 ## JIT logic
 ```perl
-sub jit_read
+sub jit_fp
 {
   my $self = shift;
-  $$self{read_simplex}->jit_request($self, @_);
+  $$self{fp_simplex}->jit_request($self, @_);
 }
 
-sub jit_write
+sub jit_pf
 {
   my $self = shift;
-  $$self{write_simplex}->jit_request($self, @_);
+  $$self{pf_simplex}->jit_request($self, @_);
 }
 
-sub jit_readable
+sub jit_fpable
 {
   my ($self, $jit, $proc) = @_;
-  $$self{read_simplex}->jit_available($self, $jit, $proc);
+  $$self{fp_simplex}->jit_available($self, $jit, $proc);
 
-  # Notify writers that someone will reply to their read requests.
-  $_->jit_flow_readable($jit, $self) for $$self{write_simplex}->responders;
+  # Notify pfs that someone will reply to their fp requests.
+  $_->jit_flow_fpable($jit, $self) for $$self{pf_simplex}->responders;
   $jit;
 }
 
 sub jit_writable
 {
   my ($self, $jit, $proc) = @_;
-  $$self{write_simplex}->jit_available($self, $jit, $proc);
+  $$self{pf_simplex}->jit_available($self, $jit, $proc);
 
-  # Notify readers that someone will reply to their write requests.
-  $_->jit_flow_writable($jit, $self) for $$self{read_simplex}->responders;
+  # Notify fps that someone will reply to their pf requests.
+  $_->jit_flow_writable($jit, $self) for $$self{fp_simplex}->responders;
   $jit;
 }
 ```

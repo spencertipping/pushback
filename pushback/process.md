@@ -11,13 +11,19 @@ use overload qw/ "" name /;
 ## Flow-facing API
 ```perl
 sub name;                   # ($self) -> $name
+sub fp_eof;                 # ($flow, $error | undef) -> $self
 
-sub jit_read;               # ($jit, $flow, $offset, $n, $data) -> $jit
-sub jit_write;              # ($jit, $flow, $offset, $n, $data) -> $jit
-sub jit_flow_readable;      # ($jit, $flow) -> $jit
-sub jit_flow_writable;      # ($jit, $flow) -> $jit
-sub invalidate_jit_reader;  # ($flow) -> $self
-sub invalidate_jit_writer;  # ($flow) -> $self
+sub jit_fp;                 # ($jit, $flow, $offset, $n, $data) -> $jit
+sub jit_pf;                 # ($jit, $flow, $offset, $n, $data) -> $jit
+sub jit_fp_ready;           # ($jit, $flow) -> $jit
+sub jit_pf_ready;           # ($jit, $flow) -> $jit
+sub invalidate_fp_jit;      # ($flow) -> $self
+sub invalidate_pf_jit;      # ($flow) -> $self
+```
 
-sub eof;                    # ($flow, $error | undef) -> $self
+
+## Default implementations
+```perl
+sub jit_fp_ready { $_[1] }  # nop: readiness is mostly for passthrough.
+sub jit_pf_ready { $_[1] }
 ```
