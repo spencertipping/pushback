@@ -1,7 +1,15 @@
-# `each`: invoke a callback per flow
+# `each`: invoke a callback per flow event
 ```perl
 package pushback::each;
 push our @ISA, 'pushback::spanner';
+
+sub pushback::stream::each
+{
+  my ($self, $fn) = @_;
+  pushback::each->new($self, $fn);
+  $self;
+}
+
 sub new
 {
   my ($class, $from, $fn) = @_;

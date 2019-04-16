@@ -101,7 +101,7 @@ sub end
 }
 #line 11 "pushback/point.md"
 package pushback::point;
-use overload qw/ "" id /;
+use overload qw/ "" id == equals /;
 use Scalar::Util qw/refaddr/;
 
 our $point_id = 0;
@@ -116,6 +116,8 @@ sub new
 sub id             { shift->{id} }
 sub is_static      { @{shift->{spanners}} == 1 }
 sub is_monomorphic { @{shift->{spanners}} == 2 }
+
+sub equals { refaddr(shift) == refaddr(shift) }
 
 sub connect
 {
@@ -139,7 +141,7 @@ sub disconnect
   splice @{$$self{spanners}}, $i, 1;
   $self;
 }
-#line 55 "pushback/point.md"
+#line 57 "pushback/point.md"
 sub invalidate_jit
 {
   my $self = shift;
@@ -207,6 +209,9 @@ sub jit_flow                # ($spanner, $jit, $flag, $n, $data) -> $jit
 }
 #line 6 "pushback/spanner.md"
 package pushback::spanner;
+use Scalar::Util qw/refaddr/;
+use overload qw/ == equals /;
+
 sub connected_to
 {
   my $class = shift;
@@ -216,8 +221,9 @@ sub connected_to
   $self;
 }
 
-sub name  { "anonymous spanner (override sub name)" }
-sub point { $_[0]->{points}->{$_[1]} }
+sub equals { refaddr(shift) == refaddr(shift) }
+sub name   { "anonymous spanner (override sub name)" }
+sub point  { $_[0]->{points}->{$_[1]} }
 sub flow_fn
 {
   my ($self, $point) = @_;
@@ -248,9 +254,21 @@ sub jit_flow_fn
       ->code('$_[1] = $data; $_[0] = $n }', n => $n, data => $data)
       ->compile;
 }
-#line 24 "pushback/seq.md"
+#line 7 "pushback/stream.md"
+package pushback::stream;
+use overload qw/ >> into /;
+push @pushback::point::ISA, 'pushback::stream';
+#line 21 "pushback/seq.md"
 package pushback::seq;
 push our @ISA, 'pushback::spanner';
+
+sub pushback::stream::seq
+{
+  my $p = pushback::point->new;
+  pushback::seq->new($p);
+  $p;
+}
+
 sub new
 {
   my ($class, $into) = @_;
@@ -284,9 +302,81 @@ sub jit_flow
     n    => $$n,
     i    => $$self{i});
 }
+#line 19 "pushback/map.md"
+package pushback::map;
+push our @ISA, 'pushback::spanner';
+
+sub pushback::stream::map
+{
+  my ($self, $fn) = @_;
+  my $dest = pushback::point->new;
+  pushback::map->new($self, $dest, $fn);
+  $dest;
+}
+
+sub new
+{
+  my ($class, $from, $to, $fn) = @_;
+  my $self = $class->connected_to(from => $from, to => $to);
+  $$self{fn} = $fn;
+  $self;
+}
+
+sub jit_flow
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $data  = \shift;
+  $self->point($point == $self->point('to') ? 'from' : 'to')
+    ->jit_flow($self, $jit, $$flag, $$n, $$data)
+    ->code(q{ @$data[0..$n-1] = map &$fn($_), @$data[0..$n-1]; },
+           fn   => $$self{fn},
+           n    => $$n,
+           data => $$data);
+}
+#line 3 "pushback/copy.md"
+package pushback::copy;
+push our @ISA, 'pushback::spanner';
+
+sub pushback::stream::into
+{
+  my ($self, $dest) = @_;
+  pushback::copy->new($self, $dest);
+  $dest;
+}
+
+sub pushback::stream::copy
+{
+  shift->into(pushback::point->new);
+}
+
+sub new
+{
+  my ($class, $from, $to) = @_;
+  $class->connected_to(from => $from, to => $to);
+}
+
+sub jit_flow
+{
+  my $self  = shift;
+  my $point = shift;
+  $self->point($point == $self->point('from') ? 'to' : 'from')
+    ->jit_flow($self, @_);
+}
 #line 3 "pushback/each.md"
 package pushback::each;
 push our @ISA, 'pushback::spanner';
+
+sub pushback::stream::each
+{
+  my ($self, $fn) = @_;
+  pushback::each->new($self, $fn);
+  $self;
+}
+
 sub new
 {
   my ($class, $from, $fn) = @_;

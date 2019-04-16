@@ -9,7 +9,7 @@ exponential fanout of inlined logic.)
 ## State
 ```perl
 package pushback::point;
-use overload qw/ "" id /;
+use overload qw/ "" id == equals /;
 use Scalar::Util qw/refaddr/;
 
 our $point_id = 0;
@@ -24,6 +24,8 @@ sub new
 sub id             { shift->{id} }
 sub is_static      { @{shift->{spanners}} == 1 }
 sub is_monomorphic { @{shift->{spanners}} == 2 }
+
+sub equals { refaddr(shift) == refaddr(shift) }
 
 sub connect
 {

@@ -4,6 +4,9 @@ base class that manages things like JIT invalidation for you.
 
 ```perl
 package pushback::spanner;
+use Scalar::Util qw/refaddr/;
+use overload qw/ == equals /;
+
 sub connected_to
 {
   my $class = shift;
@@ -13,8 +16,9 @@ sub connected_to
   $self;
 }
 
-sub name  { "anonymous spanner (override sub name)" }
-sub point { $_[0]->{points}->{$_[1]} }
+sub equals { refaddr(shift) == refaddr(shift) }
+sub name   { "anonymous spanner (override sub name)" }
+sub point  { $_[0]->{points}->{$_[1]} }
 sub flow_fn
 {
   my ($self, $point) = @_;

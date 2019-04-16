@@ -5,9 +5,7 @@ For example:
 $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
-    my $point = pushback::point->new;
-    my $seq   = pushback::seq->new($point);
-    my $print = pushback::each->new($point, sub {
+    pushback::stream::seq->copy->each(sub {
       my ($n, $data) = @_;
       print "$n\n";
       print "$_\n" for @$data[0..$n];
@@ -19,10 +17,17 @@ $ perl -I. -Mpushback -e '
 3
 ```
 
-
 ```perl
 package pushback::seq;
 push our @ISA, 'pushback::spanner';
+
+sub pushback::stream::seq
+{
+  my $p = pushback::point->new;
+  pushback::seq->new($p);
+  $p;
+}
+
 sub new
 {
   my ($class, $into) = @_;
