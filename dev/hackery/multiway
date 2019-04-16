@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my $ifelse =
+  eval join "\n",
+    "sub { my \$n = shift;",
+    "if (\$n == 0) { return 0 }",
+    map("elsif (\$n == $_) { return $_ }", 1..7),
+    "}";
+die $@ if $@;
+
+my $fns = eval join "\n",
+  q{ my @fns = map eval "sub { return $_ }", 0..7; },
+  "sub { my \$n = shift; return \$fns[\$n]->() }";
+die $@ if $@;
+
+my $split = sub {
+  my $n = shift;
+  if ($n < 4)         # 0, 1, 2, 3
+  {
+    if ($n < 2)       # 0, 1
+    {
+      if ($n == 1) { return 1 }
+      else         { return 0 }
+    }
+    else
+    {
+      if ($n == 3) { return 3 }
+      else         { return 2 }
+    }
+  }
+  else                # 4, 5, 6, 7
+  {
+    if ($n < 6)       # 4, 5
+    {
+      if ($n == 5) { return 5 }
+      else         { return 4 }
+    }
+    else
+    {
+      if ($n == 7) { return 7 }
+      else         { return 6 }
+    }
+  }
+};
+
+my $goto = sub {
+  my $n = shift;
+  goto "_$n";
+_0: return 0;
+_1: return 1;
+_2: return 2;
+_3: return 3;
+_4: return 4;
+_5: return 5;
+_6: return 6;
+_7: return 7;
+};
+
+my @labels = map "_$_", 0..7;
+my $goto_array = sub {
+  my $n = shift;
+  goto $labels[$n];
+_0: return 0;
+_1: return 1;
+_2: return 2;
+_3: return 3;
+_4: return 4;
+_5: return 5;
+_6: return 6;
+_7: return 7;
+};
+
+my $i = 0;
+timethese 10000000, {
+  ifelse     => sub { &$ifelse(++$i & 7) },
+  fns        => sub { &$fns(++$i & 7) },
+  split      => sub { &$split(++$i & 7) },
+  goto       => sub { &$goto(++$i & 7) },
+  goto_array => sub { &$goto_array(++$i & 7) },
+};
