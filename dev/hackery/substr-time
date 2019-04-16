@@ -1,0 +1,12 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my $data = "\0" x 1048576;
+my $i    = 0;
+
+timethese 100000, {
+  short_substr => sub { $i += length substr $data, 0, 1024 },
+  long_substr  => sub { $i += length substr $data, 0, 524288 },
+};

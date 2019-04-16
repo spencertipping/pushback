@@ -1,0 +1,38 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my @xs = (1) x 1048576;
+my @ys = (0) x 1048576;
+
+use constant i256 => [0..255];
+use constant i512 => [0..511];
+use constant i1k  => [0..1023];
+use constant i2k  => [0..2047];
+use constant i4k  => [0..4095];
+use constant i8k  => [0..8191];
+use constant i16k => [0..16383];
+use constant i32k => [0..32767];
+
+# Takeaway: these are all horrifically slow, each running in the 1.7k
+# iterations/second range.
+timethese 4000, {
+  copy_256 => sub { @ys[0..255]   = @xs[0..255]   for 1..128 },
+  copy_512 => sub { @ys[0..511]   = @xs[0..511]   for 1..64 },
+  copy_1k  => sub { @ys[0..1023]  = @xs[0..1023]  for 1..32 },
+  copy_2k  => sub { @ys[0..2047]  = @xs[0..2047]  for 1..16 },
+  copy_4k  => sub { @ys[0..4095]  = @xs[0..4095]  for 1..8 },
+  copy_8k  => sub { @ys[0..8191]  = @xs[0..8191]  for 1..4 },
+  copy_16k => sub { @ys[0..16383] = @xs[0..16383] for 1..2 },
+  copy_32k => sub { @ys[0..32767] = @xs[0..32767] for 1..1 },
+
+  copy_i256 => sub { @ys[@{+i256}] = @xs[@{+i256}] for 1..128 },
+  copy_i512 => sub { @ys[@{+i512}] = @xs[@{+i512}] for 1..64 },
+  copy_i1k  => sub { @ys[@{+i1k}]  = @xs[@{+i1k}]  for 1..32 },
+  copy_i2k  => sub { @ys[@{+i2k}]  = @xs[@{+i2k}]  for 1..16 },
+  copy_i4k  => sub { @ys[@{+i4k}]  = @xs[@{+i4k}]  for 1..8 },
+  copy_i8k  => sub { @ys[@{+i8k}]  = @xs[@{+i8k}]  for 1..4 },
+  copy_i16k => sub { @ys[@{+i16k}] = @xs[@{+i16k}] for 1..2 },
+  copy_i32k => sub { @ys[@{+i32k}] = @xs[@{+i32k}] for 1..1 },
+};
