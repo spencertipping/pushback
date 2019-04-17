@@ -242,11 +242,16 @@ sub jit_flow
       fns => \@fns);
   }
 }
-#line 9 "pushback/spanner.md"
+#line 26 "pushback/spanner.md"
 package pushback::spanner;
 use Scalar::Util qw/refaddr/;
-use overload qw/ == equals /;
+use overload qw/ "" name == equals /;
 
+sub connected_to;           # pushback::spanner->connected_to(%points)
+sub point;                  # ($key) -> $point
+sub flow;                   # ($point, $offset, $n, $data) -> $n
+sub impedance;              # ($point, $n) -> $flow
+#line 39 "pushback/spanner.md"
 sub connected_to
 {
   my $class = shift;
@@ -257,9 +262,9 @@ sub connected_to
   $self;
 }
 
-sub equals { refaddr(shift) == refaddr(shift) }
+sub equals { refaddr shift == refaddr shift }
 sub name   { "anonymous " . ref shift }
-sub point  { $_[0]->{points}->{$_[1]} }
+sub point  { $_[0]->{points}->{$_[1]} // die "$_[0]: undefined point $_[1]" }
 
 sub flow
 {
@@ -274,7 +279,7 @@ sub impedance
   my $point = shift;
   ($$self{impedance_fns}{$point} // $self->jit_impedance_fn($point))->(@_);
 }
-#line 45 "pushback/spanner.md"
+#line 71 "pushback/spanner.md"
 sub jit_autoinvalidation
 {
   my ($self, $jit, $regen_method, $point) = @_;
@@ -302,7 +307,7 @@ sub jit_impedance_fn
   $$self{impedance_fns}{$point} =
     $self->point($point)
       ->jit_impedance($self, $jit, $$flag, $n, $flow)
-      ->code('$_[0] = $flow; }', flow => $flow)
+      ->code('@_ ? $_[0] = $flow : $flow; }', flow => $flow)
       ->compile;
 }
 

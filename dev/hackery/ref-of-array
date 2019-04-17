@@ -1,0 +1,9 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+my @xs = (1);
+my $len = \$#xs;
+print "original = $$len\n";
+push @xs, 2;
+print "updated = $$len\n";

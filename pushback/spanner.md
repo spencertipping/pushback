@@ -1,15 +1,41 @@
 # Spanner: connect flow points to things
 Spanners issue flow requests and move data. `pushback::spanner` is an abstract
-base class that manages things like JIT invalidation for you, and it includes a
-metaprogramming layer that helps create multiway-routed components (**TODO**).
+base class that helps with things like JIT invalidation, directional flow, and
+impedance negotiation.
 
 
-## Base spanner class
+## Declarative impedance
+It's a major bummer to write impedance logic by hand. It usually ends up looking
+like `$flow = $n > 0 ? $n : 0` in the best case, and in the worst case you're
+writing complicated logic to incorporate multiple JIT results.
+
+What we really want is to say something like this:
+
+```pl
+defimpedance(
+  '>source' => '>destination',      # source passes through to destination
+  '<source' => 0);                  # ...but blocks reverse flow
+```
+
+...and in most cases we'd assume a component would block flow, so we could drop
+the `<source` definition.
+
+
+## Base API
 ```perl
 package pushback::spanner;
 use Scalar::Util qw/refaddr/;
-use overload qw/ == equals /;
+use overload qw/ "" name == equals /;
 
+sub connected_to;           # pushback::spanner->connected_to(%points)
+sub point;                  # ($key) -> $point
+sub flow;                   # ($point, $offset, $n, $data) -> $n
+sub impedance;              # ($point, $n) -> $flow
+```
+
+
+## Flow point management
+```perl
 sub connected_to
 {
   my $class = shift;
@@ -20,9 +46,9 @@ sub connected_to
   $self;
 }
 
-sub equals { refaddr(shift) == refaddr(shift) }
+sub equals { refaddr shift == refaddr shift }
 sub name   { "anonymous " . ref shift }
-sub point  { $_[0]->{points}->{$_[1]} }
+sub point  { $_[0]->{points}->{$_[1]} // die "$_[0]: undefined point $_[1]" }
 
 sub flow
 {
@@ -69,7 +95,7 @@ sub jit_impedance_fn
   $$self{impedance_fns}{$point} =
     $self->point($point)
       ->jit_impedance($self, $jit, $$flag, $n, $flow)
-      ->code('$_[0] = $flow; }', flow => $flow)
+      ->code('@_ ? $_[0] = $flow : $flow; }', flow => $flow)
       ->compile;
 }
 
