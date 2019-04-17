@@ -6,13 +6,13 @@ do this not because we have to, but because otherwise we could have an
 exponential fanout of inlined logic.)
 
 
-## Flow negotiation and impedance
-Any data supplier needs to be able to sense impedance, which in this context
-translates roughly to "an offer of (or request for) size N will be serviced by a
-flow of size F." |F| can be either larger or smaller than |N|, although the two
-won't be of opposite polarity.
+## Flow negotiation and admittance
+Any data supplier needs to be able to sense admittance (the inverse of
+impedance), which in this context translates roughly to "an offer of (or request
+for) size N will be serviced by a flow of size F." |F| can be either larger or
+smaller than |N|, although the two won't be of opposite polarity.
 
-Impedance queries are a way to sample points on the [I-V
+Admittance queries are a way to sample points on the [I-V
 curve](https://en.wikipedia.org/wiki/Current%E2%80%93voltage_characteristic) of
 a flow point. We could insist that spanners figure it out reactively, but that
 doesn't work well with cut-through transformations. We'd end up repeating a lot
@@ -34,7 +34,7 @@ sub connect;            # ($spanner) -> $self!
 sub disconnect;         # ($spanner) -> $self!
 
 sub invalidate_jit;     # () -> $self
-sub jit_impedance;      # ($spanner, $jit, $flag, $n, $flow) -> $jit!
+sub jit_admittance;     # ($spanner, $jit, $flag, $n, $flow) -> $jit!
 sub jit_flow;           # ($spanner, $jit, $flag, $offset, $n, $data) -> $jit!
 ```
 
@@ -90,9 +90,9 @@ sub invalidate_jit
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
-  die 'jit_impedance expects 6 args' unless @_ == 6;
+  die 'jit_admittance expects 6 args' unless @_ == 6;
   my $self = shift;
   my $s    = shift;
   my $jit  = shift;
@@ -102,15 +102,15 @@ sub jit_impedance
 
   weaken($$self{jit_flags}{refaddr $flag} = $flag);
 
-  # Calculate total impedance, which in our case is the sum of all connected
-  # spanners' impedances. We skip the requesting spanner. If none are connected,
-  # we return 0.
+  # Calculate total admittance, which in our case is the sum of all connected
+  # spanners' admittances. We skip the requesting spanner. If none are
+  # connected, we return 0.
   $jit->code('$f = 0;', f => $$flow);
 
   my $fi = 0;
   for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
   {
-    $_->jit_impedance($self, $jit, $$flag, $$n, $fi)
+    $_->jit_admittance($self, $jit, $$flag, $$n, $fi)
       ->code('$f += $fi;', f => $$flow, fi => $fi);
   }
   $jit;
@@ -118,7 +118,7 @@ sub jit_impedance
 
 sub jit_flow
 {
-  die 'jit_flow expect 7 args' unless @_ == 7;
+  die 'jit_flow expects 7 args' unless @_ == 7;
   my $self   = shift;
   my $s      = shift;
   my $jit    = shift;

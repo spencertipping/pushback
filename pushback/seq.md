@@ -35,7 +35,7 @@ sub new
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;

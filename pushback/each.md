@@ -14,7 +14,7 @@ sub new
 {
   my ($class, $from, $fn) = @_;
   my $self = $class->connected_to(from => $from);
-  my $n = $self->impedance('from', -1);
+  my $n = $self->admittance('from', -1);
   my $offset;
   my $data;
   $$self{fn} = $fn;
@@ -22,7 +22,7 @@ sub new
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;
@@ -31,7 +31,7 @@ sub jit_impedance
   my $n     = \shift;
   my $flow  = \shift;
 
-  # No impedance modifications for inflow to this spanner.
+  # No admittance modifications for inflow to this spanner.
   $jit->code(q{ $f = $n > 0 ? $n : 0; }, f => $$flow, n => $$n);
 }
 

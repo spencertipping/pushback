@@ -36,7 +36,7 @@ sub new
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;
@@ -45,7 +45,7 @@ sub jit_impedance
   my $n     = \shift;
   my $flow  = \shift;
   $self->point($point == $self->point('to') ? 'from' : 'to')
-    ->jit_impedance($self, $jit, $$flag, $$n, $$flow);
+    ->jit_admittance($self, $jit, $$flag, $$n, $$flow);
 }
 
 sub jit_flow

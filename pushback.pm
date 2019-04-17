@@ -112,7 +112,7 @@ sub connect;            # ($spanner) -> $self!
 sub disconnect;         # ($spanner) -> $self!
 
 sub invalidate_jit;     # () -> $self
-sub jit_impedance;      # ($spanner, $jit, $flag, $n, $flow) -> $jit!
+sub jit_admittance;     # ($spanner, $jit, $flag, $n, $flow) -> $jit!
 sub jit_flow;           # ($spanner, $jit, $flag, $offset, $n, $data) -> $jit!
 #line 44 "pushback/point.md"
 our $point_id = 0;
@@ -160,9 +160,9 @@ sub invalidate_jit
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
-  die 'jit_impedance expects 6 args' unless @_ == 6;
+  die 'jit_admittance expects 6 args' unless @_ == 6;
   my $self = shift;
   my $s    = shift;
   my $jit  = shift;
@@ -172,15 +172,15 @@ sub jit_impedance
 
   weaken($$self{jit_flags}{refaddr $flag} = $flag);
 
-  # Calculate total impedance, which in our case is the sum of all connected
-  # spanners' impedances. We skip the requesting spanner. If none are connected,
-  # we return 0.
+  # Calculate total admittance, which in our case is the sum of all connected
+  # spanners' admittances. We skip the requesting spanner. If none are
+  # connected, we return 0.
   $jit->code('$f = 0;', f => $$flow);
 
   my $fi = 0;
   for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
   {
-    $_->jit_impedance($self, $jit, $$flag, $$n, $fi)
+    $_->jit_admittance($self, $jit, $$flag, $$n, $fi)
       ->code('$f += $fi;', f => $$flow, fi => $fi);
   }
   $jit;
@@ -188,7 +188,7 @@ sub jit_impedance
 
 sub jit_flow
 {
-  die 'jit_flow expect 7 args' unless @_ == 7;
+  die 'jit_flow expects 7 args' unless @_ == 7;
   my $self   = shift;
   my $s      = shift;
   my $jit    = shift;
@@ -248,14 +248,14 @@ use overload qw/ "" name == equals /;
 sub connected_to;           # pushback::spanner->connected_to(%points)
 sub point;                  # ($key) -> $point
 sub flow;                   # ($point, $offset, $n, $data) -> $n
-sub impedance;              # ($point, $n) -> $flow
+sub admittance;             # ($point, $n) -> $flow
 #line 39 "pushback/spanner.md"
 sub connected_to
 {
   my $class = shift;
-  my $self  = bless { points        => {@_},
-                      flow_fns      => {},
-                      impedance_fns => {} }, $class;
+  my $self  = bless { points         => {@_},
+                      flow_fns       => {},
+                      admittance_fns => {} }, $class;
   $_->connect($self) for values %{$$self{points}};
   $self;
 }
@@ -271,11 +271,11 @@ sub flow
   ($$self{flow_fns}{$point} // $self->jit_flow_fn($point))->(@_);
 }
 
-sub impedance
+sub admittance
 {
   my $self  = shift;
   my $point = shift;
-  ($$self{impedance_fns}{$point} // $self->jit_impedance_fn($point))->(@_);
+  ($$self{admittance_fns}{$point} // $self->jit_admittance_fn($point))->(@_);
 }
 #line 71 "pushback/spanner.md"
 sub jit_autoinvalidation
@@ -290,21 +290,21 @@ sub jit_autoinvalidation
   \$flag;
 }
 
-sub jit_impedance_fn
+sub jit_admittance_fn
 {
   my ($self, $point) = @_;
   my $jit = pushback::jit->new
-    ->code('#line 1 "' . $self->name . '::impedance_fn"')
+    ->code('#line 1 "' . $self->name . '::admittance_fn"')
     ->code('sub {');
 
   my $n;
   my $flow;
-  my $flag = $self->jit_autoinvalidation($jit, 'jit_impedance_fn', $point);
+  my $flag = $self->jit_autoinvalidation($jit, 'jit_admittance_fn', $point);
   $jit->code(q{ $n = shift; }, n => $n);
 
-  $$self{impedance_fns}{$point} =
+  $$self{admittance_fns}{$point} =
     $self->point($point)
-      ->jit_impedance($self, $jit, $$flag, $n, $flow)
+      ->jit_admittance($self, $jit, $$flag, $n, $flow)
       ->code('@_ ? $_[0] = $flow : $flow; }', flow => $flow)
       ->compile;
 }
@@ -332,6 +332,16 @@ sub jit_flow_fn
           data   => $data)
       ->compile;
 }
+#line 6 "pushback/admittance.md"
+package pushback::admittance::value;
+use overload qw/ + plus
+                 | union
+                 & intersect /;
+
+sub jit;                # ($jit, $n, $flow) -> $jit
+sub plus      { pushback::admittance::sum         ->new(shift, shift) }
+sub union     { pushback::admittance::union       ->new(shift, shift) }
+sub intersect { pushback::admittance::intersection->new(shift, shift) }
 #line 7 "pushback/stream.md"
 package pushback::stream;
 use overload qw/ >> into /;
@@ -355,7 +365,7 @@ sub new
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;
@@ -417,7 +427,7 @@ sub new
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;
@@ -426,7 +436,7 @@ sub jit_impedance
   my $n     = \shift;
   my $flow  = \shift;
   $self->point($point == $self->point('to') ? 'from' : 'to')
-    ->jit_impedance($self, $jit, $$flag, $$n, $$flow);
+    ->jit_admittance($self, $jit, $$flag, $$n, $$flow);
 }
 
 sub jit_flow
@@ -470,12 +480,12 @@ sub new
   $class->connected_to(from => $from, to => $to);
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;
   $self->point($point == $self->point('from') ? 'to' : 'from')
-    ->jit_impedance($self, @_);
+    ->jit_admittance($self, @_);
 }
 
 sub jit_flow
@@ -500,7 +510,7 @@ sub new
 {
   my ($class, $from, $fn) = @_;
   my $self = $class->connected_to(from => $from);
-  my $n = $self->impedance('from', -1);
+  my $n = $self->admittance('from', -1);
   my $offset;
   my $data;
   $$self{fn} = $fn;
@@ -508,7 +518,7 @@ sub new
   $self;
 }
 
-sub jit_impedance
+sub jit_admittance
 {
   my $self  = shift;
   my $point = shift;
@@ -517,7 +527,7 @@ sub jit_impedance
   my $n     = \shift;
   my $flow  = \shift;
 
-  # No impedance modifications for inflow to this spanner.
+  # No admittance modifications for inflow to this spanner.
   $jit->code(q{ $f = $n > 0 ? $n : 0; }, f => $$flow, n => $$n);
 }
 

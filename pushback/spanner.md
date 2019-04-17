@@ -1,18 +1,18 @@
-# Spanner: connect flow points to things
+# Spanner: micro-processes that connect flow points
 Spanners issue flow requests and move data. `pushback::spanner` is an abstract
 base class that helps with things like JIT invalidation, directional flow, and
-impedance negotiation.
+admittance negotiation.
 
 
-## Declarative impedance
-It's a major bummer to write impedance logic by hand. It usually ends up looking
-like `$flow = $n > 0 ? $n : 0` in the best case, and in the worst case you're
-writing complicated logic to incorporate multiple JIT results.
+## Declarative admittance
+It's a major bummer to write admittance logic by hand. It usually ends up
+looking like `$flow = $n > 0 ? $n : 0` in the best case, and in the worst case
+you're writing complicated logic to incorporate multiple JIT results.
 
 What we really want is to say something like this:
 
 ```pl
-defimpedance(
+defadmittance(
   '>source' => '>destination',      # source passes through to destination
   '<source' => 0);                  # ...but blocks reverse flow
 ```
@@ -30,7 +30,7 @@ use overload qw/ "" name == equals /;
 sub connected_to;           # pushback::spanner->connected_to(%points)
 sub point;                  # ($key) -> $point
 sub flow;                   # ($point, $offset, $n, $data) -> $n
-sub impedance;              # ($point, $n) -> $flow
+sub admittance;             # ($point, $n) -> $flow
 ```
 
 
@@ -39,9 +39,9 @@ sub impedance;              # ($point, $n) -> $flow
 sub connected_to
 {
   my $class = shift;
-  my $self  = bless { points        => {@_},
-                      flow_fns      => {},
-                      impedance_fns => {} }, $class;
+  my $self  = bless { points         => {@_},
+                      flow_fns       => {},
+                      admittance_fns => {} }, $class;
   $_->connect($self) for values %{$$self{points}};
   $self;
 }
@@ -57,11 +57,11 @@ sub flow
   ($$self{flow_fns}{$point} // $self->jit_flow_fn($point))->(@_);
 }
 
-sub impedance
+sub admittance
 {
   my $self  = shift;
   my $point = shift;
-  ($$self{impedance_fns}{$point} // $self->jit_impedance_fn($point))->(@_);
+  ($$self{admittance_fns}{$point} // $self->jit_admittance_fn($point))->(@_);
 }
 ```
 
@@ -80,21 +80,21 @@ sub jit_autoinvalidation
   \$flag;
 }
 
-sub jit_impedance_fn
+sub jit_admittance_fn
 {
   my ($self, $point) = @_;
   my $jit = pushback::jit->new
-    ->code('#line 1 "' . $self->name . '::impedance_fn"')
+    ->code('#line 1 "' . $self->name . '::admittance_fn"')
     ->code('sub {');
 
   my $n;
   my $flow;
-  my $flag = $self->jit_autoinvalidation($jit, 'jit_impedance_fn', $point);
+  my $flag = $self->jit_autoinvalidation($jit, 'jit_admittance_fn', $point);
   $jit->code(q{ $n = shift; }, n => $n);
 
-  $$self{impedance_fns}{$point} =
+  $$self{admittance_fns}{$point} =
     $self->point($point)
-      ->jit_impedance($self, $jit, $$flag, $n, $flow)
+      ->jit_admittance($self, $jit, $$flag, $n, $flow)
       ->code('@_ ? $_[0] = $flow : $flow; }', flow => $flow)
       ->compile;
 }
