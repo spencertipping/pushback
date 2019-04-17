@@ -99,25 +99,35 @@ sub end
   my $self = shift;
   $$self{parent}->code(join"\n", @{$$self{code}}, $$self{end});
 }
-#line 11 "pushback/point.md"
+#line 25 "pushback/point.md"
 package pushback::point;
 use overload qw/ "" id == equals /;
 use Scalar::Util qw/refaddr/;
 
+sub new;                # pushback::point->new($id // undef)
+sub id;                 # () -> $id_string
+sub is_static;          # () -> $static?
+sub is_monomorphic;     # () -> $monomorphic?
+sub connect;            # ($spanner) -> $self!
+sub disconnect;         # ($spanner) -> $self!
+
+sub invalidate_jit;     # () -> $self
+sub jit_impedance;      # ($spanner, $jit, $flag, $n, $flow) -> $jit!
+sub jit_flow;           # ($spanner, $jit, $flag, $n, $data) -> $jit!
+#line 44 "pushback/point.md"
 our $point_id = 0;
 sub new
 {
   my ($class, $id) = @_;
-  bless { id        => $id // ++$point_id,
+  bless { id        => $id // "_" . $point_id++,
           spanners  => [],
-          jit_flags => [] }, $class;
+          jit_flags => {} }, $class;
 }
 
+sub equals         { refaddr shift == refaddr shift }
 sub id             { shift->{id} }
 sub is_static      { @{shift->{spanners}} == 1 }
 sub is_monomorphic { @{shift->{spanners}} == 2 }
-
-sub equals { refaddr(shift) == refaddr(shift) }
 
 sub connect
 {
@@ -141,16 +151,42 @@ sub disconnect
   splice @{$$self{spanners}}, $i, 1;
   $self;
 }
-#line 57 "pushback/point.md"
+#line 85 "pushback/point.md"
 sub invalidate_jit
 {
   my $self = shift;
-  $$_ = 1 for @{$$self{jit_flags}};
-  @{$$self{jit_flags}} = ();
+  $$_ = 1 for values %{$$self{jit_flags}};
+  %{$$self{jit_flags}} = ();
   $self;
 }
 
-sub jit_flow                # ($spanner, $jit, $flag, $n, $data) -> $jit
+sub jit_impedance
+{
+  my $self = shift;
+  my $s    = shift;
+  my $jit  = shift;
+  my $flag = \shift;
+  my $n    = \shift;
+  my $flow = \shift;
+
+  # TODO: weaken this reference
+  $$self{jit_flags}{refaddr $flag} = $flag;
+
+  # Calculate total impedance, which in our case is the sum of all connected
+  # spanners' impedances. We skip the requesting spanner. If none are connected,
+  # we return 0.
+  $jit->code('$f = 0;', f => $$flow);
+
+  my $fi = 0;
+  for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
+  {
+    $_->jit_impedance($self, $jit, $$flag, $$n, $fi)
+      ->code('$f += $fi;', f => $$flow, fi => $fi);
+  }
+  $jit;
+}
+
+sub jit_flow
 {
   my $self = shift;
   my $s    = shift;
@@ -159,19 +195,15 @@ sub jit_flow                # ($spanner, $jit, $flag, $n, $data) -> $jit
   my $n    = \shift;
   my $data = \shift;
 
-  my $jit_flags = $$self{jit_flags};
-  push @$jit_flags, $flag;
+  # TODO: weaken this reference
+  $$self{jit_flags}{refaddr $flag} = $flag;
 
   if ($self->is_static)
   {
-    # No flow is possible against a point with only one connection; flow points
-    # themselves don't have any capacity.
     $jit->code(q{ $n = 0; }, n => $$n);
   }
   elsif ($self->is_monomorphic)
   {
-    # Passthrough to the only other spanner. No need to update flow pressure
-    # since nobody will use it.
     my ($other) = grep refaddr($_) != refaddr($s), @{$$self{spanners}};
     $other->jit_flow($self, $jit, $$flag, $$n, $$data);
   }
@@ -207,7 +239,7 @@ sub jit_flow                # ($spanner, $jit, $flag, $n, $data) -> $jit
       fns => \@fns);
   }
 }
-#line 6 "pushback/spanner.md"
+#line 9 "pushback/spanner.md"
 package pushback::spanner;
 use Scalar::Util qw/refaddr/;
 use overload qw/ == equals /;
@@ -215,42 +247,77 @@ use overload qw/ == equals /;
 sub connected_to
 {
   my $class = shift;
-  my $self  = bless { points   => {@_},
-                      flow_fns => {} }, $class;
+  my $self  = bless { points        => {@_},
+                      flow_fns      => {},
+                      impedance_fns => {} }, $class;
   $_->connect($self) for values %{$$self{points}};
   $self;
 }
 
 sub equals { refaddr(shift) == refaddr(shift) }
-sub name   { "anonymous spanner (override sub name)" }
+sub name   { "anonymous " . ref shift }
 sub point  { $_[0]->{points}->{$_[1]} }
-sub flow_fn
+
+sub flow
+{
+  my $self  = shift;
+  my $point = shift;
+  ($$self{flow_fns}{$point} // $self->jit_flow_fn($point))->(@_);
+}
+
+sub impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  ($$self{impedance_fns}{$point} // $self->jit_impedance_fn($point))->(@_);
+}
+#line 45 "pushback/spanner.md"
+sub jit_autoinvalidation
+{
+  my ($self, $jit, $regen_method, $point) = @_;
+  my $flag = 0;
+  $jit->code(q{ return &$fn($self, $point)->(@_) if $invalidated; },
+    fn          => $self->can($regen_method),
+    self        => $self,
+    point       => $point,
+    invalidated => $flag);
+  \$flag;
+}
+
+sub jit_impedance_fn
 {
   my ($self, $point) = @_;
-  $$self{flow_fns}{$point} // $self->jit_flow_fn($point);
+  my $jit = pushback::jit->new
+    ->code('#line 1 "' . $self->name . '::impedance_fn"')
+    ->code('sub {');
+
+  my $n;
+  my $flow;
+  my $flag = $self->jit_autoinvalidation($jit, 'jit_impedance_fn', $point);
+  $jit->code(q{ $n = shift; }, n => $n);
+
+  $$self{impedance_fns}{$point} =
+    $self->point($point)
+      ->jit_impedance($self, $jit, $$flag, $n, $flow)
+      ->code('$_[0] = $flow; }', flow => $flow)
+      ->compile;
 }
 
 sub jit_flow_fn
 {
   my ($self, $point) = @_;
-  my $invalidation_flag = 0;
-
-  # Major voodoo here: we're producing a JIT function (fair enough), but that
-  # function needs to recompile itself and invoke the new one if it becomes
-  # invalidated.
   my $jit = pushback::jit->new
-    ->code('#line 1 "' . $self->name . '"')
-    ->code('sub {')
-    ->code('return &$fn($self, $point)->(@_) if $invalidated;',
-      fn          => $self->can('jit_flow_fn'),
-      self        => $self,
-      point       => $point,
-      invalidated => $invalidation_flag)
-    ->code('($n, $data) = @_;', n => my $n, data => my $data);
+    ->code('#line 1 "' . $self->name . '::flow_fn"')
+    ->code('sub {');
+
+  my $n;
+  my $data;
+  my $flag = $self->jit_autoinvalidation($jit, 'jit_flow_fn', $point);
+  $jit->code('($n, $data) = @_;', n => $n, data => $data);
 
   $$self{flow_fns}{$point} =
     $self->point($point)
-      ->jit_flow($self, $jit, $invalidation_flag, $n, $data)
+      ->jit_flow($self, $jit, $$flag, $n, $data)
       ->code('$_[1] = $data; $_[0] = $n }', n => $n, data => $data)
       ->compile;
 }
@@ -277,6 +344,19 @@ sub new
   $self;
 }
 
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $flow  = \shift;
+
+  # Always return data. Our target flow per request is 1k elements.
+  $jit->code(q{ $f = $n < 0 ? -1024 : 0; }, n => $$n, f => $$flow);
+}
+
 sub jit_flow
 {
   my $self  = shift;
@@ -285,7 +365,8 @@ sub jit_flow
   my $flag  = \shift;
   my $n     = \shift;
   my $data  = \shift;
-  $jit->code(
+  $jit->code('#line 1 seq')
+      ->code(
     q{
       if ($n < 0)
       {
@@ -322,6 +403,18 @@ sub new
   $self;
 }
 
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $flow  = \shift;
+  $self->point($point == $self->point('to') ? 'from' : 'to')
+    ->jit_impedance($self, $jit, $$flag, $$n, $$flow);
+}
+
 sub jit_flow
 {
   my $self  = shift;
@@ -332,6 +425,7 @@ sub jit_flow
   my $data  = \shift;
   $self->point($point == $self->point('to') ? 'from' : 'to')
     ->jit_flow($self, $jit, $$flag, $$n, $$data)
+    ->code('#line 1 "' . $self->name . ' flow')
     ->code(q{ @$data[0..$n-1] = map &$fn($_), @$data[0..$n-1]; },
            fn   => $$self{fn},
            n    => $$n,
@@ -384,8 +478,21 @@ sub new
   my $n = -100;
   my $data;
   $$self{fn} = $fn;
-  $$self{fn}->($n, $data) while $n = $self->flow_fn('from')->($n, $data);
+  $$self{fn}->($n, $data) while $n = $self->flow('from', $n, $data);
   $self;
+}
+
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $flow  = \shift;
+
+  # Always consume data, ideally at a rate of 1k elements per flow request.
+  $jit->code(q{ $f = $n > 0 ? 1024 : 0; }, f => $$flow, n => $$n);
 }
 
 sub jit_flow

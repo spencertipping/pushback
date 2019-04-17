@@ -1,7 +1,10 @@
 # Spanner: connect flow points to things
 Spanners issue flow requests and move data. `pushback::spanner` is an abstract
-base class that manages things like JIT invalidation for you.
+base class that manages things like JIT invalidation for you, and it includes a
+metaprogramming layer that helps create multiway-routed components (**TODO**).
 
+
+## Base spanner class
 ```perl
 package pushback::spanner;
 use Scalar::Util qw/refaddr/;
@@ -10,42 +13,81 @@ use overload qw/ == equals /;
 sub connected_to
 {
   my $class = shift;
-  my $self  = bless { points   => {@_},
-                      flow_fns => {} }, $class;
+  my $self  = bless { points        => {@_},
+                      flow_fns      => {},
+                      impedance_fns => {} }, $class;
   $_->connect($self) for values %{$$self{points}};
   $self;
 }
 
 sub equals { refaddr(shift) == refaddr(shift) }
-sub name   { "anonymous spanner (override sub name)" }
+sub name   { "anonymous " . ref shift }
 sub point  { $_[0]->{points}->{$_[1]} }
-sub flow_fn
+
+sub flow
+{
+  my $self  = shift;
+  my $point = shift;
+  ($$self{flow_fns}{$point} // $self->jit_flow_fn($point))->(@_);
+}
+
+sub impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  ($$self{impedance_fns}{$point} // $self->jit_impedance_fn($point))->(@_);
+}
+```
+
+
+## JIT mechanics
+```perl
+sub jit_autoinvalidation
+{
+  my ($self, $jit, $regen_method, $point) = @_;
+  my $flag = 0;
+  $jit->code(q{ return &$fn($self, $point)->(@_) if $invalidated; },
+    fn          => $self->can($regen_method),
+    self        => $self,
+    point       => $point,
+    invalidated => $flag);
+  \$flag;
+}
+
+sub jit_impedance_fn
 {
   my ($self, $point) = @_;
-  $$self{flow_fns}{$point} // $self->jit_flow_fn($point);
+  my $jit = pushback::jit->new
+    ->code('#line 1 "' . $self->name . '::impedance_fn"')
+    ->code('sub {');
+
+  my $n;
+  my $flow;
+  my $flag = $self->jit_autoinvalidation($jit, 'jit_impedance_fn', $point);
+  $jit->code(q{ $n = shift; }, n => $n);
+
+  $$self{impedance_fns}{$point} =
+    $self->point($point)
+      ->jit_impedance($self, $jit, $$flag, $n, $flow)
+      ->code('$_[0] = $flow; }', flow => $flow)
+      ->compile;
 }
 
 sub jit_flow_fn
 {
   my ($self, $point) = @_;
-  my $invalidation_flag = 0;
-
-  # Major voodoo here: we're producing a JIT function (fair enough), but that
-  # function needs to recompile itself and invoke the new one if it becomes
-  # invalidated.
   my $jit = pushback::jit->new
-    ->code('#line 1 "' . $self->name . '"')
-    ->code('sub {')
-    ->code('return &$fn($self, $point)->(@_) if $invalidated;',
-      fn          => $self->can('jit_flow_fn'),
-      self        => $self,
-      point       => $point,
-      invalidated => $invalidation_flag)
-    ->code('($n, $data) = @_;', n => my $n, data => my $data);
+    ->code('#line 1 "' . $self->name . '::flow_fn"')
+    ->code('sub {');
+
+  my $n;
+  my $data;
+  my $flag = $self->jit_autoinvalidation($jit, 'jit_flow_fn', $point);
+  $jit->code('($n, $data) = @_;', n => $n, data => $data);
 
   $$self{flow_fns}{$point} =
     $self->point($point)
-      ->jit_flow($self, $jit, $invalidation_flag, $n, $data)
+      ->jit_flow($self, $jit, $$flag, $n, $data)
       ->code('$_[1] = $data; $_[0] = $n }', n => $n, data => $data)
       ->compile;
 }

@@ -36,6 +36,19 @@ sub new
   $self;
 }
 
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $flow  = \shift;
+
+  # Always return data. Our target flow per request is 1k elements.
+  $jit->code(q{ $f = $n < 0 ? -1024 : 0; }, n => $$n, f => $$flow);
+}
+
 sub jit_flow
 {
   my $self  = shift;
@@ -44,7 +57,8 @@ sub jit_flow
   my $flag  = \shift;
   my $n     = \shift;
   my $data  = \shift;
-  $jit->code(
+  $jit->code('#line 1 seq')
+      ->code(
     q{
       if ($n < 0)
       {

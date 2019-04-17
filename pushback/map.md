@@ -35,6 +35,18 @@ sub new
   $self;
 }
 
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $flow  = \shift;
+  $self->point($point == $self->point('to') ? 'from' : 'to')
+    ->jit_impedance($self, $jit, $$flag, $$n, $$flow);
+}
+
 sub jit_flow
 {
   my $self  = shift;
@@ -45,6 +57,7 @@ sub jit_flow
   my $data  = \shift;
   $self->point($point == $self->point('to') ? 'from' : 'to')
     ->jit_flow($self, $jit, $$flag, $$n, $$data)
+    ->code('#line 1 "' . $self->name . ' flow')
     ->code(q{ @$data[0..$n-1] = map &$fn($_), @$data[0..$n-1]; },
            fn   => $$self{fn},
            n    => $$n,

@@ -17,8 +17,21 @@ sub new
   my $n = -100;
   my $data;
   $$self{fn} = $fn;
-  $$self{fn}->($n, $data) while $n = $self->flow_fn('from')->($n, $data);
+  $$self{fn}->($n, $data) while $n = $self->flow('from', $n, $data);
   $self;
+}
+
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  my $jit   = shift;
+  my $flag  = \shift;
+  my $n     = \shift;
+  my $flow  = \shift;
+
+  # Always consume data, ideally at a rate of 1k elements per flow request.
+  $jit->code(q{ $f = $n > 0 ? 1024 : 0; }, f => $$flow, n => $$n);
 }
 
 sub jit_flow
