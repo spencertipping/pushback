@@ -35,7 +35,7 @@ sub disconnect;         # ($spanner) -> $self!
 
 sub invalidate_jit;     # () -> $self
 sub jit_impedance;      # ($spanner, $jit, $flag, $n, $flow) -> $jit!
-sub jit_flow;           # ($spanner, $jit, $flag, $n, $data) -> $jit!
+sub jit_flow;           # ($spanner, $jit, $flag, $offset, $n, $data) -> $jit!
 ```
 
 
@@ -92,6 +92,7 @@ sub invalidate_jit
 
 sub jit_impedance
 {
+  die 'jit_impedance expects 6 args' unless @_ == 6;
   my $self = shift;
   my $s    = shift;
   my $jit  = shift;
@@ -118,12 +119,14 @@ sub jit_impedance
 
 sub jit_flow
 {
-  my $self = shift;
-  my $s    = shift;
-  my $jit  = shift;
-  my $flag = \shift;
-  my $n    = \shift;
-  my $data = \shift;
+  die 'jit_flow expect 7 args' unless @_ == 7;
+  my $self   = shift;
+  my $s      = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
 
   # TODO: weaken this reference
   $$self{jit_flags}{refaddr $flag} = $flag;
@@ -135,7 +138,7 @@ sub jit_flow
   elsif ($self->is_monomorphic)
   {
     my ($other) = grep refaddr($_) != refaddr($s), @{$$self{spanners}};
-    $other->jit_flow($self, $jit, $$flag, $$n, $$data);
+    $other->jit_flow($self, $jit, $$flag, $$offset, $$n, $$data);
   }
   else
   {
@@ -148,7 +151,7 @@ sub jit_flow
     # inlining.
     my $f   = 0;
     my @fns = map $_->jit_flow($self, pushback::jit->new->code('sub {'),
-                               $$flag, $f, $$data)
+                               $$flag, $$offset, $f, $$data)
                     ->code('}')->compile,
               grep refaddr($_) != refaddr($s), @{$$self{spanners}};
     $jit->code(

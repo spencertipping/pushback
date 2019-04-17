@@ -113,7 +113,7 @@ sub disconnect;         # ($spanner) -> $self!
 
 sub invalidate_jit;     # () -> $self
 sub jit_impedance;      # ($spanner, $jit, $flag, $n, $flow) -> $jit!
-sub jit_flow;           # ($spanner, $jit, $flag, $n, $data) -> $jit!
+sub jit_flow;           # ($spanner, $jit, $flag, $offset, $n, $data) -> $jit!
 #line 44 "pushback/point.md"
 our $point_id = 0;
 sub new
@@ -162,6 +162,7 @@ sub invalidate_jit
 
 sub jit_impedance
 {
+  die 'jit_impedance expects 6 args' unless @_ == 6;
   my $self = shift;
   my $s    = shift;
   my $jit  = shift;
@@ -188,12 +189,14 @@ sub jit_impedance
 
 sub jit_flow
 {
-  my $self = shift;
-  my $s    = shift;
-  my $jit  = shift;
-  my $flag = \shift;
-  my $n    = \shift;
-  my $data = \shift;
+  die 'jit_flow expect 7 args' unless @_ == 7;
+  my $self   = shift;
+  my $s      = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
 
   # TODO: weaken this reference
   $$self{jit_flags}{refaddr $flag} = $flag;
@@ -205,7 +208,7 @@ sub jit_flow
   elsif ($self->is_monomorphic)
   {
     my ($other) = grep refaddr($_) != refaddr($s), @{$$self{spanners}};
-    $other->jit_flow($self, $jit, $$flag, $$n, $$data);
+    $other->jit_flow($self, $jit, $$flag, $$offset, $$n, $$data);
   }
   else
   {
@@ -218,7 +221,7 @@ sub jit_flow
     # inlining.
     my $f   = 0;
     my @fns = map $_->jit_flow($self, pushback::jit->new->code('sub {'),
-                               $$flag, $f, $$data)
+                               $$flag, $$offset, $f, $$data)
                     ->code('}')->compile,
               grep refaddr($_) != refaddr($s), @{$$self{spanners}};
     $jit->code(
@@ -310,22 +313,27 @@ sub jit_flow_fn
     ->code('#line 1 "' . $self->name . '::flow_fn"')
     ->code('sub {');
 
-  my $n;
-  my $data;
+  my ($offset, $n, $data);
   my $flag = $self->jit_autoinvalidation($jit, 'jit_flow_fn', $point);
-  $jit->code('($n, $data) = @_;', n => $n, data => $data);
+  $jit->code('($offset, $n, $data) = @_;',
+    offset => $offset,
+    n      => $n,
+    data   => $data);
 
   $$self{flow_fns}{$point} =
     $self->point($point)
-      ->jit_flow($self, $jit, $$flag, $n, $data)
-      ->code('$_[1] = $data; $_[0] = $n }', n => $n, data => $data)
+      ->jit_flow($self, $jit, $$flag, $offset, $n, $data)
+      ->code('$_[2] = $data; $_[0] = $offset; $_[1] = $n }',
+          offset => $offset,
+          n      => $n,
+          data   => $data)
       ->compile;
 }
 #line 7 "pushback/stream.md"
 package pushback::stream;
 use overload qw/ >> into /;
 push @pushback::point::ISA, 'pushback::stream';
-#line 21 "pushback/seq.md"
+#line 20 "pushback/seq.md"
 package pushback::seq;
 push our @ISA, 'pushback::spanner';
 
@@ -359,19 +367,21 @@ sub jit_impedance
 
 sub jit_flow
 {
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $data  = \shift;
+  my $self   = shift;
+  my $point  = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
   $jit->code('#line 1 seq')
       ->code(
     q{
       if ($n < 0)
       {
         $n = -$n;
-        @$data = $i..$i + $n;
+        $offset = 0;
+        @$data = $i .. $i+$n-1;
         $i += $n;
       }
       else
@@ -379,11 +389,12 @@ sub jit_flow
         $n = 0;
       }
     },
-    data => $$data,
-    n    => $$n,
-    i    => $$self{i});
+    offset => $$offset,
+    data   => $$data,
+    n      => $$n,
+    i      => $$self{i});
 }
-#line 19 "pushback/map.md"
+#line 20 "pushback/map.md"
 package pushback::map;
 push our @ISA, 'pushback::spanner';
 
@@ -417,19 +428,22 @@ sub jit_impedance
 
 sub jit_flow
 {
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $data  = \shift;
+  my $self   = shift;
+  my $point  = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
   $self->point($point == $self->point('to') ? 'from' : 'to')
-    ->jit_flow($self, $jit, $$flag, $$n, $$data)
+    ->jit_flow($self, $jit, $$flag, $$offset, $$n, $$data)
     ->code('#line 1 "' . $self->name . ' flow')
-    ->code(q{ @$data[0..$n-1] = map &$fn($_), @$data[0..$n-1]; },
-           fn   => $$self{fn},
-           n    => $$n,
-           data => $$data);
+    ->code(q{ @$data[$offset .. $offset+$n-1]
+                = map &$fn($_), @$data[$offset .. $offset+$n-1]; },
+           fn     => $$self{fn},
+           offset => $$offset,
+           n      => $$n,
+           data   => $$data);
 }
 #line 3 "pushback/copy.md"
 package pushback::copy;
@@ -451,6 +465,14 @@ sub new
 {
   my ($class, $from, $to) = @_;
   $class->connected_to(from => $from, to => $to);
+}
+
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  $self->point($point == $self->point('from') ? 'to' : 'from')
+    ->jit_impedance($self, @_);
 }
 
 sub jit_flow
@@ -475,10 +497,11 @@ sub new
 {
   my ($class, $from, $fn) = @_;
   my $self = $class->connected_to(from => $from);
-  my $n = -100;
+  my $n = $self->impedance('from', -1);
+  my $offset;
   my $data;
   $$self{fn} = $fn;
-  $$self{fn}->($n, $data) while $n = $self->flow('from', $n, $data);
+  &$fn($offset, $n, $data) while $n = $self->flow('from', $offset, $n, $data);
   $self;
 }
 
@@ -491,23 +514,24 @@ sub jit_impedance
   my $n     = \shift;
   my $flow  = \shift;
 
-  # Always consume data, ideally at a rate of 1k elements per flow request.
-  $jit->code(q{ $f = $n > 0 ? 1024 : 0; }, f => $$flow, n => $$n);
+  # No impedance modifications for inflow to this spanner.
+  $jit->code(q{ $f = $n > 0 ? $n : 0; }, f => $$flow, n => $$n);
 }
 
 sub jit_flow
 {
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $data  = \shift;
+  my $self   = shift;
+  my $point  = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
   $jit->code(
     q{
       if ($n > 0)
       {
-        &$fn($n, $data);
+        &$fn($offset, $n, $data);
         $n = -$n;
       }
       else
@@ -515,9 +539,10 @@ sub jit_flow
         $n = 0;
       }
     },
-    fn   => $$self{fn},
-    data => $$data,
-    n    => $$n);
+    fn     => $$self{fn},
+    offset => $$offset,
+    n      => $$n,
+    data   => $$data);
 }
 1;
 __END__

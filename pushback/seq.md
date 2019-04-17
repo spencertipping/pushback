@@ -6,15 +6,14 @@ $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
     pushback::stream::seq->copy->each(sub {
-      my ($n, $data) = @_;
-      print "$n\n";
-      print "$_\n" for @$data[0..$n];
+      my ($offset, $n, $data) = @_;
+      print "$n\t$_\n" for @$data[$offset..$offset+$n-1];
     })' | head -n5
-100
-0
-1
-2
-3
+1024	0
+1024	1
+1024	2
+1024	3
+1024	4
 ```
 
 ```perl
@@ -51,19 +50,21 @@ sub jit_impedance
 
 sub jit_flow
 {
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $data  = \shift;
+  my $self   = shift;
+  my $point  = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
   $jit->code('#line 1 seq')
       ->code(
     q{
       if ($n < 0)
       {
         $n = -$n;
-        @$data = $i..$i + $n;
+        $offset = 0;
+        @$data = $i .. $i+$n-1;
         $i += $n;
       }
       else
@@ -71,8 +72,9 @@ sub jit_flow
         $n = 0;
       }
     },
-    data => $$data,
-    n    => $$n,
-    i    => $$self{i});
+    offset => $$offset,
+    data   => $$data,
+    n      => $$n,
+    i      => $$self{i});
 }
 ```

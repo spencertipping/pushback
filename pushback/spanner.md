@@ -80,15 +80,20 @@ sub jit_flow_fn
     ->code('#line 1 "' . $self->name . '::flow_fn"')
     ->code('sub {');
 
-  my $n;
-  my $data;
+  my ($offset, $n, $data);
   my $flag = $self->jit_autoinvalidation($jit, 'jit_flow_fn', $point);
-  $jit->code('($n, $data) = @_;', n => $n, data => $data);
+  $jit->code('($offset, $n, $data) = @_;',
+    offset => $offset,
+    n      => $n,
+    data   => $data);
 
   $$self{flow_fns}{$point} =
     $self->point($point)
-      ->jit_flow($self, $jit, $$flag, $n, $data)
-      ->code('$_[1] = $data; $_[0] = $n }', n => $n, data => $data)
+      ->jit_flow($self, $jit, $$flag, $offset, $n, $data)
+      ->code('$_[2] = $data; $_[0] = $offset; $_[1] = $n }',
+          offset => $offset,
+          n      => $n,
+          data   => $data)
       ->compile;
 }
 ```

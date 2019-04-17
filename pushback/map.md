@@ -6,7 +6,8 @@ $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
     pushback::stream::seq->map(sub { shift() ** 2 })->each(sub {
-      print "$_\n" for @{$_[1]};
+      my ($offset, $n, $data) = @_;
+      print "$_\n" for @$data[$offset..$offset+$n-1]
     })' | head -n5
 0
 1
@@ -49,18 +50,21 @@ sub jit_impedance
 
 sub jit_flow
 {
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $data  = \shift;
+  my $self   = shift;
+  my $point  = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
   $self->point($point == $self->point('to') ? 'from' : 'to')
-    ->jit_flow($self, $jit, $$flag, $$n, $$data)
+    ->jit_flow($self, $jit, $$flag, $$offset, $$n, $$data)
     ->code('#line 1 "' . $self->name . ' flow')
-    ->code(q{ @$data[0..$n-1] = map &$fn($_), @$data[0..$n-1]; },
-           fn   => $$self{fn},
-           n    => $$n,
-           data => $$data);
+    ->code(q{ @$data[$offset .. $offset+$n-1]
+                = map &$fn($_), @$data[$offset .. $offset+$n-1]; },
+           fn     => $$self{fn},
+           offset => $$offset,
+           n      => $$n,
+           data   => $$data);
 }
 ```

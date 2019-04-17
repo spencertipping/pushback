@@ -14,10 +14,11 @@ sub new
 {
   my ($class, $from, $fn) = @_;
   my $self = $class->connected_to(from => $from);
-  my $n = -100;
+  my $n = $self->impedance('from', -1);
+  my $offset;
   my $data;
   $$self{fn} = $fn;
-  $$self{fn}->($n, $data) while $n = $self->flow('from', $n, $data);
+  &$fn($offset, $n, $data) while $n = $self->flow('from', $offset, $n, $data);
   $self;
 }
 
@@ -30,23 +31,24 @@ sub jit_impedance
   my $n     = \shift;
   my $flow  = \shift;
 
-  # Always consume data, ideally at a rate of 1k elements per flow request.
-  $jit->code(q{ $f = $n > 0 ? 1024 : 0; }, f => $$flow, n => $$n);
+  # No impedance modifications for inflow to this spanner.
+  $jit->code(q{ $f = $n > 0 ? $n : 0; }, f => $$flow, n => $$n);
 }
 
 sub jit_flow
 {
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $data  = \shift;
+  my $self   = shift;
+  my $point  = shift;
+  my $jit    = shift;
+  my $flag   = \shift;
+  my $offset = \shift;
+  my $n      = \shift;
+  my $data   = \shift;
   $jit->code(
     q{
       if ($n > 0)
       {
-        &$fn($n, $data);
+        &$fn($offset, $n, $data);
         $n = -$n;
       }
       else
@@ -54,8 +56,9 @@ sub jit_flow
         $n = 0;
       }
     },
-    fn   => $$self{fn},
-    data => $$data,
-    n    => $$n);
+    fn     => $$self{fn},
+    offset => $$offset,
+    n      => $$n,
+    data   => $$data);
 }
 ```

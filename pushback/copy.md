@@ -21,6 +21,14 @@ sub new
   $class->connected_to(from => $from, to => $to);
 }
 
+sub jit_impedance
+{
+  my $self  = shift;
+  my $point = shift;
+  $self->point($point == $self->point('from') ? 'to' : 'from')
+    ->jit_impedance($self, @_);
+}
+
 sub jit_flow
 {
   my $self  = shift;
