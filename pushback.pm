@@ -102,7 +102,7 @@ sub end
 #line 25 "pushback/point.md"
 package pushback::point;
 use overload qw/ "" id == equals /;
-use Scalar::Util qw/refaddr/;
+use Scalar::Util qw/ refaddr weaken /;
 
 sub new;                # pushback::point->new($id // undef)
 sub id;                 # () -> $id_string
@@ -170,8 +170,7 @@ sub jit_impedance
   my $n    = \shift;
   my $flow = \shift;
 
-  # TODO: weaken this reference
-  $$self{jit_flags}{refaddr $flag} = $flag;
+  weaken($$self{jit_flags}{refaddr $flag} = $flag);
 
   # Calculate total impedance, which in our case is the sum of all connected
   # spanners' impedances. We skip the requesting spanner. If none are connected,
@@ -198,8 +197,7 @@ sub jit_flow
   my $n      = \shift;
   my $data   = \shift;
 
-  # TODO: weaken this reference
-  $$self{jit_flags}{refaddr $flag} = $flag;
+  weaken($$self{jit_flags}{refaddr $flag} = $flag);
 
   if ($self->is_static)
   {
