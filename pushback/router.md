@@ -140,8 +140,10 @@ multiple cases at once by describing flow in terms of paths.
 sub is_path { shift =~ /^[<>](.*)/ }
 sub parse_path
 {
-  local $_ = shift;
-  ($_, s/^>// ? 1 : s/^<// ? -1 : die "$_ doesn't look like a path");
+  my $p = shift;
+  return ($p,  1) if $p =~ s/^>//;
+  return ($p, -1) if $p =~ s/^<//;
+  die "$p doesn't look like a path";
 }
 
 sub flow
@@ -285,11 +287,15 @@ sub jit_path_admittance
   my $a = $$router{admittances}{$path}
        // return $jit->code('$flow = 0;', flow => $$flow);
 
-  return pushback::admittance->from($spanner->point($a), $spanner)
+  my ($apoint, $apol);
+  return pushback::admittance->from($spanner->point($apoint), $apol, $spanner)
                              ->jit($jit, $$flag, $$n, $$flow)
-    if $router->has_point($a);
+    if is_path $a and ($apoint, $apol) = parse_path $a;
 
+  my (undef, $pol) = parse_path $path;
+  $jit->code("\$n *= $pol;", n => $$n);
   pushback::admittance->from($a, $spanner)->jit($jit, $$flag, $$n, $$flow);
+  $jit->code("\$flow *= $pol;", flow => $$flow);
 }
 
 sub gen_jit_admittance

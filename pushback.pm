@@ -377,11 +377,11 @@ sub from
   my $val   = shift;
   my $r     = ref $val;
 
-  return create n     => $val        if !$r && looks_like_number $val;
-  return create jit   => $val, @_    if !$r;
-  return create fn    => $val        if  $r eq 'CODE';
-  return create point => $val, shift if  $r =~ /^pushback::point/;
-  return $val                        if  $r =~ /^pushback::admittance/;
+  return create n     => $val     if !$r && looks_like_number $val;
+  return create jit   => $val, @_ if !$r;
+  return create fn    => $val     if  $r eq 'CODE';
+  return create point => $val, @_ if  $r =~ /^pushback::point/;
+  return $val                     if  $r =~ /^pushback::admittance/;
 
   die "don't know how to turn $val ($r) into an admittance calculator";
 }
@@ -412,8 +412,9 @@ sub pushback::admittance::jit::jit
 #line 78 "pushback/admittance.md"
 sub pushback::admittance::n::new     { bless \(my $x = $_[1]), $_[0] }
 sub pushback::admittance::fn::new    { bless \(my $x = $_[1]), $_[0] }
-sub pushback::admittance::point::new { bless { point   => $_[1],
-                                               spanner => $_[2] }, $_[0] }
+sub pushback::admittance::point::new { bless { point    => $_[1],
+                                               polarity => $_[2],
+                                               spanner  => $_[3] }, $_[0] }
 
 sub pushback::admittance::n::jit
 {
@@ -442,9 +443,12 @@ sub pushback::admittance::point::jit
   my $flag = \shift;
   my $n    = \shift;
   my $flow = \shift;
+
+  $jit->code("\$n *= $$self{polarity};", n => $$n);
   $$self{point}->jit_admittance($$self{spanner}, $jit, $$flag, $$n, $$flow);
+  $jit->code("\$flow *= $$self{polarity};", flow => $$flow);
 }
-#line 117 "pushback/admittance.md"
+#line 121 "pushback/admittance.md"
 sub pushback::admittance::plus::jit
 {
   my $self = shift;
@@ -602,8 +606,10 @@ sub stream
 sub is_path { shift =~ /^[<>](.*)/ }
 sub parse_path
 {
-  local $_ = shift;
-  ($_, s/^>// ? 1 : s/^<// ? -1 : die "$_ doesn't look like a path");
+  my $p = shift;
+  return ($p,  1) if $p =~ s/^>//;
+  return ($p, -1) if $p =~ s/^<//;
+  die "$p doesn't look like a path";
 }
 
 sub flow
@@ -627,7 +633,7 @@ sub flow
 
   $self;
 }
-#line 186 "pushback/router.md"
+#line 188 "pushback/router.md"
 sub package;                # () -> $our_new_class
 sub package_bind;           # ($name => $val, ...) -> $self
 
@@ -635,7 +641,7 @@ sub gen_ctor;               # () -> $class_new_fn
 sub gen_stream_ctor;        # ($name) -> $stream_ctor_fn
 sub gen_jit_flow;           # () -> $jit_flow_fn
 sub gen_jit_admittance;     # () -> $jit_admittance_fn
-#line 198 "pushback/router.md"
+#line 200 "pushback/router.md"
 sub instantiate
 {
   my $pkg = shift->package_name;
@@ -708,7 +714,7 @@ sub gen_stream_ctor
     $self;
   };
 }
-#line 275 "pushback/router.md"
+#line 277 "pushback/router.md"
 sub jit_path_admittance
 {
   my $router  = shift;
@@ -722,11 +728,15 @@ sub jit_path_admittance
   my $a = $$router{admittances}{$path}
        // return $jit->code('$flow = 0;', flow => $$flow);
 
-  return pushback::admittance->from($spanner->point($a), $spanner)
+  my ($apoint, $apol);
+  return pushback::admittance->from($spanner->point($apoint), $apol, $spanner)
                              ->jit($jit, $$flag, $$n, $$flow)
-    if $router->has_point($a);
+    if is_path $a and ($apoint, $apol) = parse_path $a;
 
+  my (undef, $pol) = parse_path $path;
+  $jit->code("\$n *= $pol;", n => $$n);
   pushback::admittance->from($a, $spanner)->jit($jit, $$flag, $$n, $$flow);
+  $jit->code("\$flow *= $pol;", flow => $$flow);
 }
 
 sub gen_jit_admittance
@@ -752,7 +762,7 @@ sub gen_jit_admittance
     $jit->code('}');
   };
 }
-#line 323 "pushback/router.md"
+#line 329 "pushback/router.md"
 sub jit_path_flow
 {
   my $router  = shift;
@@ -830,7 +840,7 @@ push @pushback::point::ISA, 'pushback::stream';
 pushback::router->new('pushback::seq', qw/ out /)
   ->stream('out')
   ->state(i => 0)
-  ->flow('<out', 1, q{ $$data[$offset] = $i++ })
+  ->flow('<out', '$flow = 1;', q{ $$data[$offset] = $i++ })
   ->package;
 #line 20 "pushback/map.md"
 pushback::router->new('pushback::map', qw/ in out /)
@@ -838,12 +848,12 @@ pushback::router->new('pushback::map', qw/ in out /)
   ->stream('out')
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
-  ->flow('>in', 'out', q{
+  ->flow('>in', '>out', q{
       print "offset = $offset, n = $n, data = @$data\n";
       @$data[$offset .. $offset+$n-1]
         = map &$fn($_), @$data[$offset .. $offset+$n-1];
     })
-  ->flow('<out', 'in', '>in')
+  ->flow('<out', '<in', '>in')
   ->package;
 #line 5 "pushback/copy.md"
 package pushback::copy;
@@ -887,7 +897,7 @@ pushback::router->new('pushback::each', qw/ in /)
   ->streamctor(each => 'in')
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
-  ->flow('>in', '$n', q{ &$fn($offset, $n, $flow); })
+  ->flow('>in', 1, q{ &$fn($offset, $n, $flow); })
   ->def(run => sub
     {
       my $self = shift;

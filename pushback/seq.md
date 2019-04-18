@@ -20,6 +20,6 @@ $ perl -I. -Mpushback -e '
 pushback::router->new('pushback::seq', qw/ out /)
   ->stream('out')
   ->state(i => 0)
-  ->flow('<out', 1, q{ $$data[$offset] = $i++ })
+  ->flow('<out', '$flow = 1;', q{ $$data[$offset] = $i++ })
   ->package;
 ```

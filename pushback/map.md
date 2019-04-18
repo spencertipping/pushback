@@ -22,11 +22,11 @@ pushback::router->new('pushback::map', qw/ in out /)
   ->stream('out')
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
-  ->flow('>in', 'out', q{
+  ->flow('>in', '>out', q{
       print "offset = $offset, n = $n, data = @$data\n";
       @$data[$offset .. $offset+$n-1]
         = map &$fn($_), @$data[$offset .. $offset+$n-1];
     })
-  ->flow('<out', 'in', '>in')
+  ->flow('<out', '<in', '>in')
   ->package;
 ```

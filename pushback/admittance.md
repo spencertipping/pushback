@@ -34,11 +34,11 @@ sub from
   my $val   = shift;
   my $r     = ref $val;
 
-  return create n     => $val        if !$r && looks_like_number $val;
-  return create jit   => $val, @_    if !$r;
-  return create fn    => $val        if  $r eq 'CODE';
-  return create point => $val, shift if  $r =~ /^pushback::point/;
-  return $val                        if  $r =~ /^pushback::admittance/;
+  return create n     => $val     if !$r && looks_like_number $val;
+  return create jit   => $val, @_ if !$r;
+  return create fn    => $val     if  $r eq 'CODE';
+  return create point => $val, @_ if  $r =~ /^pushback::point/;
+  return $val                     if  $r =~ /^pushback::admittance/;
 
   die "don't know how to turn $val ($r) into an admittance calculator";
 }
@@ -77,8 +77,9 @@ sub pushback::admittance::jit::jit
 ```perl
 sub pushback::admittance::n::new     { bless \(my $x = $_[1]), $_[0] }
 sub pushback::admittance::fn::new    { bless \(my $x = $_[1]), $_[0] }
-sub pushback::admittance::point::new { bless { point   => $_[1],
-                                               spanner => $_[2] }, $_[0] }
+sub pushback::admittance::point::new { bless { point    => $_[1],
+                                               polarity => $_[2],
+                                               spanner  => $_[3] }, $_[0] }
 
 sub pushback::admittance::n::jit
 {
@@ -107,7 +108,10 @@ sub pushback::admittance::point::jit
   my $flag = \shift;
   my $n    = \shift;
   my $flow = \shift;
+
+  $jit->code("\$n *= $$self{polarity};", n => $$n);
   $$self{point}->jit_admittance($$self{spanner}, $jit, $$flag, $$n, $$flow);
+  $jit->code("\$flow *= $$self{polarity};", flow => $$flow);
 }
 ```
 

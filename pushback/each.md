@@ -4,7 +4,7 @@ pushback::router->new('pushback::each', qw/ in /)
   ->streamctor(each => 'in')
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
-  ->flow('>in', '$n', q{ &$fn($offset, $n, $flow); })
+  ->flow('>in', 1, q{ &$fn($offset, $n, $flow); })
   ->def(run => sub
     {
       my $self = shift;
