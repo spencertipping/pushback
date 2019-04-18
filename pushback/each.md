@@ -1,63 +1,16 @@
 # `each`: invoke a callback per flow event
 ```perl
-package pushback::each;
-push our @ISA, 'pushback::spanner';
-
-sub pushback::stream::each
-{
-  my ($self, $fn) = @_;
-  pushback::each->new($self, $fn);
-  $self;
-}
-
-sub new
-{
-  my ($class, $from, $fn) = @_;
-  my $self   = $class->connected_to(from => $from);
-  my $n      = $self->admittance('from', -1);
-  my $offset = 0;
-  my $data;
-  $$self{fn} = $fn;
-  &$fn($offset, $n, $data) while $n = $self->flow('from', $offset, $n, $data);
-  $self;
-}
-
-sub jit_admittance
-{
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $flow  = \shift;
-
-  # No admittance modifications for inflow to this spanner.
-  $jit->code(q{ $f = $n > 0 ? $n : 0; }, f => $$flow, n => $$n);
-}
-
-sub jit_flow
-{
-  my $self   = shift;
-  my $point  = shift;
-  my $jit    = shift;
-  my $flag   = \shift;
-  my $offset = \shift;
-  my $n      = \shift;
-  my $data   = \shift;
-  $jit->code(
-    q{
-      if ($n > 0)
-      {
-        &$fn($offset, $n, $data);
-      }
-      else
-      {
-        $n = 0;
-      }
-    },
-    fn     => $$self{fn},
-    offset => $$offset,
-    n      => $$n,
-    data   => $$data);
-}
+pushback::router->new('pushback::each', qw/ in /)
+  ->streamctor(each => 'in')
+  ->state(fn => undef)
+  ->init(sub { my $self = shift; $$self{fn} = shift })
+  ->flow('>in', '$n', q{ &$fn($offset, $n, $flow); })
+  ->def(run => sub
+    {
+      my $self = shift;
+      my ($offset, $n, $data) = (0, $self->admittance('in', -1), shift);
+      1 while $n = $self->flow('in', $offset, $n, $data);
+      $self;
+    })
+  ->package;
 ```

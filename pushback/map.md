@@ -5,10 +5,11 @@ For example:
 $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
-    pushback::stream::seq->map(sub { shift() ** 2 })->out->each(sub {
+    pushback::seq->new->out->map(sub { shift() ** 2 })->out->each(sub {
       my ($offset, $n, $data) = @_;
+      print "@$data\n";
       print "$_\n" for @$data[$offset..$offset+$n-1]
-    })' | head -n5
+    })->run([])' | head -n5
 0
 1
 4
@@ -23,7 +24,7 @@ pushback::router->new('pushback::map', qw/ in out /)
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
   ->flow('>in', 'out', q{
-      print STDERR "offset = $offset, n = $n\n";
+      print "offset = $offset, n = $n, data = @$data\n";
       @$data[$offset .. $offset+$n-1]
         = map &$fn($_), @$data[$offset .. $offset+$n-1];
     })

@@ -173,17 +173,23 @@ sub jit_admittance
   my $flow = \shift;
 
   weaken($$self{jit_flags}{refaddr $flag} = $flag);
-
-  # Calculate total admittance, which in our case is the sum of all connected
-  # spanners' admittances. We skip the requesting spanner. If none are
-  # connected, we return 0.
-  $jit->code('$f = 0;', f => $$flow);
-
-  my $fi = 0;
-  for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
+  if ($self->is_monomorphic)
   {
-    $_->jit_admittance($self, $jit, $$flag, $$n, $fi)
-      ->code('$f += $fi;', f => $$flow, fi => $fi);
+    my ($other) = grep refaddr($_) != refaddr($s), @{$$self{spanners}};
+    $other->jit_admittance($self, $jit, $$flag, $$n, $$flow);
+  }
+  else
+  {
+    # Calculate total admittance, which in our case is the sum of all connected
+    # spanners' admittances. We skip the requesting spanner. If none are
+    # connected, we return 0.
+    $jit->code('$f = 0;', f => $$flow);
+    my $fi = 0;
+    for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
+    {
+      $_->jit_admittance($self, $jit, $$flag, $$n, $fi)
+        ->code('$f += $fi;', f => $$flow, fi => $fi);
+    }
   }
   $jit;
 }
@@ -626,7 +632,7 @@ sub package;                # () -> $our_new_class
 sub package_bind;           # ($name => $val, ...) -> $self
 
 sub gen_ctor;               # () -> $class_new_fn
-sub gen_stream_ctor;        # () -> $stream_ctor_fn
+sub gen_stream_ctor;        # ($name) -> $stream_ctor_fn
 sub gen_jit_flow;           # () -> $jit_flow_fn
 sub gen_jit_admittance;     # () -> $jit_admittance_fn
 #line 198 "pushback/router.md"
@@ -647,14 +653,11 @@ sub package
 
   $self->package_bind(%{$$self{methods}},
                       new            => $self->gen_ctor,
-                      from_stream    => $self->gen_stream_ctor,
                       jit_flow       => $self->gen_jit_flow,
                       jit_admittance => $self->gen_jit_admittance);
 
-  for my $k (keys %{$$self{streamctors}})
-  {
-    ${pushback::stream::}{$k} = sub { $package->from_stream($k, @_) };
-  }
+  ${pushback::stream::}{$_} = $self->gen_stream_ctor($_)
+    for keys %{$$self{streamctors}};
 
   for my $k (keys %{$$self{streams}})
   {
@@ -694,18 +697,18 @@ sub gen_ctor
 
 sub gen_stream_ctor
 {
-  my $router = shift;
+  my $router   = shift;
+  my $ctorname = shift;
   sub {
-    my $instream          = shift;
-    my $ctorname          = shift;
     my ($point, $init_fn) = @{$$router{streamctors}{$ctorname}};
-    my $self              = $router->instantiate($ctorname, @_);
-    $self->point($point)->copy($instream);
+    my $instream          = shift;
+    my $self              = $router->instantiate(@_);
+    $instream->into($self->point($point));
     $init_fn->($self, $instream, @_) if defined $init_fn;
     $self;
   };
 }
-#line 278 "pushback/router.md"
+#line 275 "pushback/router.md"
 sub jit_path_admittance
 {
   my $router  = shift;
@@ -743,13 +746,13 @@ sub gen_jit_admittance
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, ">$point_name", $jit, $$flag, $$n, $$flow);
-    $jit->code('} else {');
+    $jit->code('} elsif ($n < 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, "<$point_name", $jit, $$flag, $$n, $$flow);
     $jit->code('}');
   };
 }
-#line 326 "pushback/router.md"
+#line 323 "pushback/router.md"
 sub jit_path_flow
 {
   my $router  = shift;
@@ -810,15 +813,13 @@ sub gen_jit_flow
     my $point_name = $$self{point_lookup}{$point}
       // die "$self isn't connected to $point";
 
-    $jit->code('print "ROUTER offset = $offset, n = $n\n";', offset => $$offset, n =>
-    $$n);
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_flow(
       $self, ">$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('} else {');
+    $jit->code('} elsif ($n < 0) { $n *= -1;', n => $$n);
     $router->jit_path_flow(
       $self, "<$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('}', n => $$n);
+    $jit->code('}');
   };
 }
 #line 7 "pushback/stream.md"
@@ -826,74 +827,25 @@ package pushback::stream;
 use overload qw/ >> into /;
 push @pushback::point::ISA, 'pushback::stream';
 #line 20 "pushback/seq.md"
-package pushback::seq;
-push our @ISA, 'pushback::spanner';
-
-sub pushback::stream::seq
-{
-  my $p = pushback::point->new;
-  pushback::seq->new($p);
-  $p;
-}
-
-sub new
-{
-  my ($class, $into) = @_;
-  my $self = $class->connected_to(into => $into);
-  $$self{i} = 0;
-  $self;
-}
-
-sub jit_admittance
-{
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $flow  = \shift;
-
-  # Always return data. Our target flow per request is 1k elements.
-  $jit->code(q{ $f = $n < 0 ? -1024 : 0; }, n => $$n, f => $$flow);
-}
-
-sub jit_flow
-{
-  my $self   = shift;
-  my $point  = shift;
-  my $jit    = shift;
-  my $flag   = \shift;
-  my $offset = \shift;
-  my $n      = \shift;
-  my $data   = \shift;
-
-  $jit->code(
-    q{
-      if ($n < 0)
-      {
-        $n *= -1;
-        $offset = 0;
-        @$data = $i .. $i+$n-1;
-        $i += $n;
-      }
-      else
-      {
-        $n = 0;
-      }
-    },
-    offset => $$offset,
-    data   => $$data,
-    n      => $$n,
-    i      => $$self{i});
-}
-#line 20 "pushback/map.md"
+pushback::router->new('pushback::seq', qw/ out /)
+  ->stream('out')
+  ->state(i => 0)
+  ->flow('<out', 1024, q{
+      print "seq outflow: offset = $offset, n = $n\n";
+      $offset = 0;
+      @$data[$offset .. $offset+$n-1] = $i..$i+$n-1;
+      $i += $n;
+      $n *= -1;
+    })
+  ->package;
+#line 21 "pushback/map.md"
 pushback::router->new('pushback::map', qw/ in out /)
   ->streamctor(map => 'in')
   ->stream('out')
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
   ->flow('>in', 'out', q{
-      print STDERR "offset = $offset, n = $n\n";
+      print "offset = $offset, n = $n, data = @$data\n";
       @$data[$offset .. $offset+$n-1]
         = map &$fn($_), @$data[$offset .. $offset+$n-1];
     })
@@ -937,65 +889,18 @@ sub jit_flow
     ->jit_flow($self, @_);
 }
 #line 3 "pushback/each.md"
-package pushback::each;
-push our @ISA, 'pushback::spanner';
-
-sub pushback::stream::each
-{
-  my ($self, $fn) = @_;
-  pushback::each->new($self, $fn);
-  $self;
-}
-
-sub new
-{
-  my ($class, $from, $fn) = @_;
-  my $self   = $class->connected_to(from => $from);
-  my $n      = $self->admittance('from', -1);
-  my $offset = 0;
-  my $data;
-  $$self{fn} = $fn;
-  &$fn($offset, $n, $data) while $n = $self->flow('from', $offset, $n, $data);
-  $self;
-}
-
-sub jit_admittance
-{
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $flow  = \shift;
-
-  # No admittance modifications for inflow to this spanner.
-  $jit->code(q{ $f = $n > 0 ? $n : 0; }, f => $$flow, n => $$n);
-}
-
-sub jit_flow
-{
-  my $self   = shift;
-  my $point  = shift;
-  my $jit    = shift;
-  my $flag   = \shift;
-  my $offset = \shift;
-  my $n      = \shift;
-  my $data   = \shift;
-  $jit->code(
-    q{
-      if ($n > 0)
-      {
-        &$fn($offset, $n, $data);
-      }
-      else
-      {
-        $n = 0;
-      }
-    },
-    fn     => $$self{fn},
-    offset => $$offset,
-    n      => $$n,
-    data   => $$data);
-}
+pushback::router->new('pushback::each', qw/ in /)
+  ->streamctor(each => 'in')
+  ->state(fn => undef)
+  ->init(sub { my $self = shift; $$self{fn} = shift })
+  ->flow('>in', '$n', q{ &$fn($offset, $n, $flow); })
+  ->def(run => sub
+    {
+      my $self = shift;
+      my ($offset, $n, $data) = (0, $self->admittance('in', -1), shift);
+      1 while $n = $self->flow('in', $offset, $n, $data);
+      $self;
+    })
+  ->package;
 1;
 __END__

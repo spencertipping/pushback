@@ -101,17 +101,23 @@ sub jit_admittance
   my $flow = \shift;
 
   weaken($$self{jit_flags}{refaddr $flag} = $flag);
-
-  # Calculate total admittance, which in our case is the sum of all connected
-  # spanners' admittances. We skip the requesting spanner. If none are
-  # connected, we return 0.
-  $jit->code('$f = 0;', f => $$flow);
-
-  my $fi = 0;
-  for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
+  if ($self->is_monomorphic)
   {
-    $_->jit_admittance($self, $jit, $$flag, $$n, $fi)
-      ->code('$f += $fi;', f => $$flow, fi => $fi);
+    my ($other) = grep refaddr($_) != refaddr($s), @{$$self{spanners}};
+    $other->jit_admittance($self, $jit, $$flag, $$n, $$flow);
+  }
+  else
+  {
+    # Calculate total admittance, which in our case is the sum of all connected
+    # spanners' admittances. We skip the requesting spanner. If none are
+    # connected, we return 0.
+    $jit->code('$f = 0;', f => $$flow);
+    my $fi = 0;
+    for (grep refaddr($_) != refaddr($s), @{$$self{spanners}})
+    {
+      $_->jit_admittance($self, $jit, $$flag, $$n, $fi)
+        ->code('$f += $fi;', f => $$flow, fi => $fi);
+    }
   }
   $jit;
 }

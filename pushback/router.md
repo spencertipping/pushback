@@ -187,7 +187,7 @@ sub package;                # () -> $our_new_class
 sub package_bind;           # ($name => $val, ...) -> $self
 
 sub gen_ctor;               # () -> $class_new_fn
-sub gen_stream_ctor;        # () -> $stream_ctor_fn
+sub gen_stream_ctor;        # ($name) -> $stream_ctor_fn
 sub gen_jit_flow;           # () -> $jit_flow_fn
 sub gen_jit_admittance;     # () -> $jit_admittance_fn
 ```
@@ -212,14 +212,11 @@ sub package
 
   $self->package_bind(%{$$self{methods}},
                       new            => $self->gen_ctor,
-                      from_stream    => $self->gen_stream_ctor,
                       jit_flow       => $self->gen_jit_flow,
                       jit_admittance => $self->gen_jit_admittance);
 
-  for my $k (keys %{$$self{streamctors}})
-  {
-    ${pushback::stream::}{$k} = sub { $package->from_stream($k, @_) };
-  }
+  ${pushback::stream::}{$_} = $self->gen_stream_ctor($_)
+    for keys %{$$self{streamctors}};
 
   for my $k (keys %{$$self{streams}})
   {
@@ -259,13 +256,13 @@ sub gen_ctor
 
 sub gen_stream_ctor
 {
-  my $router = shift;
+  my $router   = shift;
+  my $ctorname = shift;
   sub {
-    my $instream          = shift;
-    my $ctorname          = shift;
     my ($point, $init_fn) = @{$$router{streamctors}{$ctorname}};
-    my $self              = $router->instantiate($ctorname, @_);
-    $self->point($point)->copy($instream);
+    my $instream          = shift;
+    my $self              = $router->instantiate(@_);
+    $instream->into($self->point($point));
     $init_fn->($self, $instream, @_) if defined $init_fn;
     $self;
   };
@@ -312,7 +309,7 @@ sub gen_jit_admittance
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, ">$point_name", $jit, $$flag, $$n, $$flow);
-    $jit->code('} else {');
+    $jit->code('} elsif ($n < 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, "<$point_name", $jit, $$flag, $$n, $$flow);
     $jit->code('}');
@@ -383,15 +380,13 @@ sub gen_jit_flow
     my $point_name = $$self{point_lookup}{$point}
       // die "$self isn't connected to $point";
 
-    $jit->code('print "ROUTER offset = $offset, n = $n\n";', offset => $$offset, n =>
-    $$n);
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_flow(
       $self, ">$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('} else {');
+    $jit->code('} elsif ($n < 0) { $n *= -1;', n => $$n);
     $router->jit_path_flow(
       $self, "<$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('}', n => $$n);
+    $jit->code('}');
   };
 }
 ```
