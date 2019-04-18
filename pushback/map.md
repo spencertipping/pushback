@@ -5,7 +5,7 @@ For example:
 $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
-    pushback::stream::seq->map(sub { shift() ** 2 })->each(sub {
+    pushback::stream::seq->map(sub { shift() ** 2 })->out->each(sub {
       my ($offset, $n, $data) = @_;
       print "$_\n" for @$data[$offset..$offset+$n-1]
     })' | head -n5
@@ -17,54 +17,15 @@ $ perl -I. -Mpushback -e '
 ```
 
 ```perl
-package pushback::map;
-push our @ISA, 'pushback::spanner';
-
-sub pushback::stream::map
-{
-  my ($self, $fn) = @_;
-  my $dest = pushback::point->new;
-  pushback::map->new($self, $dest, $fn);
-  $dest;
-}
-
-sub new
-{
-  my ($class, $from, $to, $fn) = @_;
-  my $self = $class->connected_to(from => $from, to => $to);
-  $$self{fn} = $fn;
-  $self;
-}
-
-sub jit_admittance
-{
-  my $self  = shift;
-  my $point = shift;
-  my $jit   = shift;
-  my $flag  = \shift;
-  my $n     = \shift;
-  my $flow  = \shift;
-  $self->point($point == $self->point('to') ? 'from' : 'to')
-    ->jit_admittance($self, $jit, $$flag, $$n, $$flow);
-}
-
-sub jit_flow
-{
-  my $self   = shift;
-  my $point  = shift;
-  my $jit    = shift;
-  my $flag   = \shift;
-  my $offset = \shift;
-  my $n      = \shift;
-  my $data   = \shift;
-  $self->point($point == $self->point('to') ? 'from' : 'to')
-    ->jit_flow($self, $jit, $$flag, $$offset, $$n, $$data)
-    ->code('#line 1 "' . $self->name . ' flow')
-    ->code(q{ @$data[$offset .. $offset+$n-1]
-                = map &$fn($_), @$data[$offset .. $offset+$n-1]; },
-           fn     => $$self{fn},
-           offset => $$offset,
-           n      => $$n,
-           data   => $$data);
-}
+pushback::router->new('pushback::map', qw/ in out /)
+  ->streamctor(map => 'in')
+  ->stream('out')
+  ->state(fn => undef)
+  ->init(sub { my $self = shift; $$self{fn} = shift })
+  ->flow('>in', '>out', q{
+      @$data[$offset .. $offset+$n-1]
+        = map &$fn($_), @$data[$offset .. $offset+$n-1];
+    })
+  ->flow('<out', '<in', '>in')
+  ->package;
 ```

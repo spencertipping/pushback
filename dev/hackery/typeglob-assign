@@ -1,0 +1,10 @@
+#!/usr/bin/env perl
+package foo;
+use strict;
+use warnings;
+
+BEGIN { ${foo::}{bar} = sub { print "it worked\n" } }
+BEGIN { my $pkg = 'foo'; ${$pkg::}{bif} = sub { print "it worked\n" } }
+
+bar;
+bif;

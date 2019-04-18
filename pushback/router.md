@@ -4,6 +4,8 @@
 
 ```perl
 package pushback::router;
+use overload qw/ "" name /;
+
 sub new             # (name, qw/ point1 point2 ... pointN /) -> $router
 {
   # new() is both a class and an instance method; branch off up front if it's
@@ -13,7 +15,7 @@ sub new             # (name, qw/ point1 point2 ... pointN /) -> $router
 
   my $name = shift;
   bless { name        => $name,
-          prefix      => "pushback::router::",
+          init        => undef,
           points      => [@_],      # [$pointname, $pointname, ...]
           state       => {},        # var => $init_fn
           methods     => {},        # name => $fn
@@ -25,12 +27,7 @@ sub new             # (name, qw/ point1 point2 ... pointN /) -> $router
 }
 
 sub has_point { grep $_ eq $_[1], @{$_[0]->{points}} }
-sub prefix
-{
-  my ($self, $prefix) = @_;
-  $$self{prefix} = $prefix;
-  $self;
-}
+sub name      { "router $_[0]->{name}" }
 ```
 
 
@@ -38,6 +35,7 @@ sub prefix
 ```perl
 sub new;            # (...) -> $spanner
 
+sub init;           # ($fn) -> $self!
 sub state;          # ($name => $init, ...) -> $self!
 sub flow;           # ($path, $admittance, $onflow) -> $self!
 sub def;            # ($name => $method, ...) -> $self!
@@ -53,12 +51,30 @@ JIT contexts for you. This allows you to write code as strings and have a common
 lexical reference frame.
 
 ```perl
+sub const { my $v = shift; sub { $v } }
 sub state
 {
   my $self = shift;
-  %{$$self{state}} = (%{$$self{state}}, @_);
+  my %s    = @_;
+
   die "'$_' is reserved for JIT interfacing and can't be bound as state"
-    for grep /^(?:flow|n|data|flag)$/, keys %{$$self{state}};
+    for grep /^(?:flow|n|data|flag|offset|self)$/,
+        keys %s;
+
+  die "'$_' is used by spanners and can't be bound as state"
+    for grep /^(?:points|point_lookup|flow_fns|admittance_fns)$/,
+        keys %s;
+
+  die "$_ will be aliased across instances, creating coupled state; "
+    . "if you really want to do this, wrap it in a closure before passing it "
+    . "to ->state()"
+    for grep ref() && ref() != 'CODE',
+        values %s;
+
+  %{$$self{state}} = (
+    %{$$self{state}},
+    map +($_ => ref($s{$_}) eq 'CODE' ? $s{$_} : const $s{$_}), keys %s);
+
   $self;
 }
 
@@ -66,6 +82,13 @@ sub def
 {
   my $self = shift;
   %{$$self{methods}} = (%{$$self{methods}}, @_);
+  $self;
+}
+
+sub init
+{
+  my $self = shift;
+  $$self{init} = shift;
   $self;
 }
 ```
@@ -82,13 +105,13 @@ sub streamctor
   die "$self doesn't define $inpoint" unless $self->has_point($inpoint);
 
   $$self{streamctors}{$name} = [$inpoint, $init_fn];
-  *{"pushback::stream::$name"} = sub { $self->from_stream($name, @_) };
   $self;
 }
 
 sub stream
 {
   my ($self, $name, $point) = @_;
+  $point //= $name;
   die "$self doesn't define $point" unless $self->has_point($point);
 
   $$self{streams}{$name} = $point;
@@ -172,9 +195,16 @@ sub gen_jit_admittance;     # () -> $jit_admittance_fn
 
 ### Boring stuff
 ```perl
-sub package_name { $_[0]->{prefix} . $_[0]->{name} }
+sub instantiate
+{
+  my $pkg = shift->package_name;
+  $pkg->new(@_);
+}
+
+sub package_name { shift->{name} }
 sub package
 {
+  no strict 'refs';
   my $self = shift;
   my $package = $self->package_name;
   push @{"$package\::ISA"}, 'pushback::spanner'
@@ -185,19 +215,60 @@ sub package
                       from_stream    => $self->gen_stream_ctor,
                       jit_flow       => $self->gen_jit_flow,
                       jit_admittance => $self->gen_jit_admittance);
+
+  for my $k (keys %{$$self{streamctors}})
+  {
+    ${pushback::stream::}{$k} = sub { $package->from_stream($k, @_) };
+  }
+
+  for my $k (keys %{$$self{streams}})
+  {
+    $self->package_bind($k => sub { shift->point($k) });
+  }
+
+  $package;
 }
 
 sub package_bind
 {
+  no strict 'refs';
   my $self = shift;
   my $destination_package = $self->package_name;
   while (@_)
   {
     my $name = shift;
-    my $val  = shift;
-    *{"$destination_package\::$name"} = $val;
+    *{"$destination_package\::$name"} = shift;
   }
   $self;
+}
+
+sub gen_ctor
+{
+  my $router = shift;
+  my $id = 0;
+  sub {
+    my $class  = shift;
+    my $self   = $class->connected_to(
+                   map +($_ => pushback::point->new("$class\::$_\[$id]")),
+                       @{$$router{points}});
+    $$self{$_} = $$router{state}{$_}->($self) for keys %{$$router{state}};
+    $$router{init}->($self, @_) if defined $$router{init};
+    $self;
+  };
+}
+
+sub gen_stream_ctor
+{
+  my $router = shift;
+  sub {
+    my $instream          = shift;
+    my $ctorname          = shift;
+    my ($point, $init_fn) = @{$$router{streamctors}{$ctorname}};
+    my $self              = $router->instantiate($ctorname, @_);
+    $self->point($point)->copy($instream);
+    $init_fn->($self, $instream, @_) if defined $init_fn;
+    $self;
+  };
 }
 ```
 
@@ -214,11 +285,11 @@ sub jit_path_admittance
   my $n       = \shift;
   my $flow    = \shift;
 
-  return $jit->code('$flow = 0;', flow => $$flow)
-    unless exists $$router{admittances}{$path};
+  my $a = $$router{admittances}{$path}
+       // return $jit->code('$flow = 0;', flow => $$flow);
 
-  my $a = $$router{admittances}{$path};
-  return $router->jit_path_admittance($spanner, $a, $jit, $$flag, $$n, $$flow)
+  return pushback::admittance->from($spanner->point(substr $a, 1), $spanner)
+                             ->jit($jit, $$flag, $$n, $$flow)
     if is_path $a;
 
   pushback::admittance->from($a, $spanner)->jit($jit, $$flag, $$n, $$flow);
@@ -241,9 +312,83 @@ sub gen_jit_admittance
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, ">$point_name", $jit, $$flag, $$n, $$flow);
-    $jit->code('} else {');
+    $jit->code('} else { $n = -$n;', n => $$n);
     $router->jit_path_admittance(
       $self, "<$point_name", $jit, $$flag, $$n, $$flow);
+    $jit->code('}');
+  };
+}
+```
+
+
+### Flow JIT
+```perl
+sub jit_path_flow
+{
+  my $router  = shift;
+  my $spanner = shift;
+  my $path    = shift;
+  my $jit     = shift;
+  my $flag    = \shift;
+  my $offset  = \shift;
+  my $n       = \shift;
+  my $data    = \shift;
+
+  my $f = $$router{flows}{$path} // return $jit->code('$n = 0;', n => $$n);
+
+  # Compose JITs if we have an array. This is useful for doing a transform and
+  # then delegating to a point flow.
+  if (ref $f eq 'ARRAY')
+  {
+    $router->jit_path_flow($spanner, $_, $jit, $$flag, $$offset, $$n, $$data)
+      for @$f;
+    $jit;
+  }
+  else
+  {
+    my $r = ref $f;
+    return &$f($spanner, $jit, $$flag, $$offset, $$n, $$data) if $r eq 'CODE';
+    return $spanner->point($f)
+                   ->jit_flow($spanner, $jit, $$flag, $$offset, $$n, $$data)
+      if !$r && exists $$spanner{points}{$f};
+
+    return $router->jit_path_flow(
+      $spanner, $f, $jit, $$flag, $$offset, $$n, $$data)
+      if is_path $f;
+
+    return $jit->code($f, %$spanner,
+                          self   => $spanner,
+                          flag   => $$flag,
+                          offset => $$offset,
+                          n      => $$n,
+                          data   => $$data)
+      unless $r;
+
+    die "$router: unrecognized path flow spec $f for $path";
+  }
+}
+
+sub gen_jit_flow
+{
+  my $router = shift;
+  sub {
+    my $self   = shift;
+    my $point  = shift;
+    my $jit    = shift;
+    my $flag   = \shift;
+    my $offset = \shift;
+    my $n      = \shift;
+    my $data   = \shift;
+
+    my $point_name = $$self{point_lookup}{$point}
+      // die "$self isn't connected to $point";
+
+    $jit->code('if ($n > 0) {', n => $$n);
+    $router->jit_path_flow(
+      $self, ">$point_name", $jit, $$flag, $$offset, $$n, $$data);
+    $jit->code('} else { $n = -$n;', n => $$n);
+    $router->jit_path_flow(
+      $self, "<$point_name", $jit, $$flag, $$offset, $$n, $$data);
     $jit->code('}');
   };
 }

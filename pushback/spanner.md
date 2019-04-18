@@ -3,9 +3,6 @@ Spanners issue flow requests and move data. `pushback::spanner` is an abstract
 base class that helps with things like JIT invalidation, directional flow, and
 admittance negotiation.
 
-You probably don't want to write spanners directly. Instead, you can use
-[routers](router.md) to describe spanner behavior in higher-level terms.
-
 
 ## Base API
 ```perl

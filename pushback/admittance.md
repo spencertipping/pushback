@@ -3,7 +3,7 @@ This is purely a DSL for declaratively defining JIT functions for admittance
 calculations.
 
 ```perl
-package pushback::admittance::value;
+package pushback::admittance;
 use Scalar::Util qw/ looks_like_number /;
 
 sub jit;                # ($jit, $flag, $n, $flow) -> $jit
@@ -12,9 +12,14 @@ use overload qw/ + plus
                  | union
                  & intersect /;
 
-# Binary ops
-BEGIN { eval "sub $_ { bless [shift, shift], 'pushback::admittance::$_' }"
-        for qw/ plus union intersect if / }
+BEGIN
+{
+  no strict 'refs';
+  eval "sub $_ { bless [shift, shift], 'pushback::admittance::$_' }"
+        for qw/ plus union intersect if /;
+  push @{"pushback::admiitance::$_\::ISA"}, 'pushback::admittance'
+        for qw/ plus union intersect if n jit fn point /;
+}
 
 # Value coercion
 sub create
@@ -33,7 +38,7 @@ sub from
   return create jit   => $val, @_    if !$r;
   return create fn    => $val        if  $r eq 'CODE';
   return create point => $val, shift if  $r =~ /^pushback::point/;
-  return $val                        if  $r =~ /^pushback::admittance::/;
+  return $val                        if  $r =~ /^pushback::admittance/;
 
   die "don't know how to turn $val ($r) into an admittance calculator";
 }
@@ -44,10 +49,12 @@ sub from
 ```perl
 sub pushback::admittance::jit::new
 {
-  my $class = shift;
-  my $code  = shift;
-  bless { code     => $code,
-          bindings => shift }, $class;
+  my $class    = shift;
+  my $code     = shift;
+  my $bindings = shift;
+  bless { code        => $code,
+          bindings    => $bindings,
+          ro_bindings => { @_ } }, $class;
 }
 
 sub pushback::admittance::jit::jit
@@ -57,8 +64,8 @@ sub pushback::admittance::jit::jit
   my $flag = \shift;
   my $n    = \shift;
   my $flow = \shift;
-
   $jit->code($$self{code}, %{$$self{bindings}},
+                           %{$$self{ro_bindings}},
                            flag => $$flag,
                            n    => $$n,
                            flow => $$flow);

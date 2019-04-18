@@ -1,4 +1,6 @@
 # `copy`: link two flow points by transferring all flow events
+**TODO:** rename this `link` because it's bidirectional
+
 ```perl
 package pushback::copy;
 push our @ISA, 'pushback::spanner';
