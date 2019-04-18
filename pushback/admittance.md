@@ -17,15 +17,51 @@ BEGIN { eval "sub $_ { bless [shift, shift], 'pushback::admittance::$_' }"
         for qw/ plus union intersect if / }
 
 # Value coercion
+sub create
+{
+  my $type = shift;
+  "pushback::admittance::$type"->new(@_);
+}
+
 sub from
 {
-  my ($class, $val) = @_;
-  my $r = ref $val;
-  return pushback::admittance::n->new($val)  if !$r && looks_like_number $val;
-  return pushback::admittance::fn->new($val) if $r eq 'CODE';
-  return pushback::admittance::point->new($val, shift)
-    if $r =~ /^pushback::point/;
-  die "don't know how to turn $val of type $r into an admittance calculator";
+  my $class = shift;
+  my $val   = shift;
+  my $r     = ref $val;
+
+  return create n     => $val        if !$r && looks_like_number $val;
+  return create jit   => $val, @_    if !$r;
+  return create fn    => $val        if  $r eq 'CODE';
+  return create point => $val, shift if  $r =~ /^pushback::point/;
+  return $val                        if  $r =~ /^pushback::admittance::/;
+
+  die "don't know how to turn $val ($r) into an admittance calculator";
+}
+```
+
+
+## JIT proxy
+```perl
+sub pushback::admittance::jit::new
+{
+  my $class = shift;
+  my $code  = shift;
+  bless { code     => $code,
+          bindings => shift }, $class;
+}
+
+sub pushback::admittance::jit::jit
+{
+  my $self = shift;
+  my $jit  = shift;
+  my $flag = \shift;
+  my $n    = \shift;
+  my $flow = \shift;
+
+  $jit->code($$self{code}, %{$$self{bindings}},
+                           flag => $$flag,
+                           n    => $$n,
+                           flow => $$flow);
 }
 ```
 

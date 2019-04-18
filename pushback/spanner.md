@@ -3,6 +3,9 @@ Spanners issue flow requests and move data. `pushback::spanner` is an abstract
 base class that helps with things like JIT invalidation, directional flow, and
 admittance negotiation.
 
+You probably don't want to write spanners directly. Instead, you can use
+[routers](router.md) to describe spanner behavior in higher-level terms.
+
 
 ## Base API
 ```perl
@@ -14,6 +17,10 @@ sub connected_to;           # pushback::spanner->connected_to(%points)
 sub point;                  # ($key) -> $point
 sub flow;                   # ($point, $offset, $n, $data) -> $n
 sub admittance;             # ($point, $n) -> $flow
+
+# Abstract methods that you'll need to implement
+sub jit_flow;               # ($point, $jit, $flag, $offset, $n, $data) -> $jit!
+sub jit_admittance;         # ($point, $jit, $flag, $n, $flow) -> $jit!
 ```
 
 
@@ -23,6 +30,7 @@ sub connected_to
 {
   my $class = shift;
   my $self  = bless { points         => {@_},
+                      point_lookup   => {reverse @_},
                       flow_fns       => {},
                       admittance_fns => {} }, $class;
   $_->connect($self) for values %{$$self{points}};

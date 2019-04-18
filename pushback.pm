@@ -240,7 +240,189 @@ sub jit_flow
       fns => \@fns);
   }
 }
-#line 9 "pushback/spanner.md"
+#line 6 "pushback/router.md"
+package pushback::router;
+sub new             # (name, qw/ point1 point2 ... pointN /) -> $router
+{
+  # new() is both a class and an instance method; branch off up front if it's
+  # being called on an instance.
+  my $class = shift;
+  return $class->instantiate(@_) if ref $class;
+
+  my $name = shift;
+  bless { name        => $name,
+          prefix      => "pushback::router::",
+          points      => [@_],      # [$pointname, $pointname, ...]
+          state       => {},        # var => $init_fn
+          methods     => {},        # name => $fn
+          streams     => {},        # name => $pointname
+          streamctors => {},        # name => [$in_flowname, $init_fn]
+          admittances => {},        # path => $calculator
+          flows       => {} },      # path => $code
+        $class;
+}
+
+sub has_point { grep $_ eq $_[1], @{$_[0]->{points}} }
+sub prefix
+{
+  my ($self, $prefix) = @_;
+  $$self{prefix} = $prefix;
+  $self;
+}
+#line 39 "pushback/router.md"
+sub new;            # (...) -> $spanner
+
+sub state;          # ($name => $init, ...) -> $self!
+sub flow;           # ($path, $admittance, $onflow) -> $self!
+sub def;            # ($name => $method, ...) -> $self!
+
+sub streamctor;     # ($name, $in_flowpoint[, $init_fn]) -> $self!
+sub stream;         # ($name, $path) -> $self!
+#line 56 "pushback/router.md"
+sub state
+{
+  my $self = shift;
+  %{$$self{state}} = (%{$$self{state}}, @_);
+  die "'$_' is reserved for JIT interfacing and can't be bound as state"
+    for grep /^(?:flow|n|data|flag)$/, keys %{$$self{state}};
+  $self;
+}
+
+sub def
+{
+  my $self = shift;
+  %{$$self{methods}} = (%{$$self{methods}}, @_);
+  $self;
+}
+#line 79 "pushback/router.md"
+sub streamctor
+{
+  my ($self, $name, $inpoint, $init_fn) = @_;
+  die "$self doesn't define $inpoint" unless $self->has_point($inpoint);
+
+  $$self{streamctors}{$name} = [$inpoint, $init_fn];
+  *{"pushback::stream::$name"} = sub { $self->from_stream($name, @_) };
+  $self;
+}
+
+sub stream
+{
+  my ($self, $name, $point) = @_;
+  die "$self doesn't define $point" unless $self->has_point($point);
+
+  $$self{streams}{$name} = $point;
+  $self;
+}
+#line 117 "pushback/router.md"
+sub is_path { shift =~ /^[<>](.*)/ }
+sub parse_path
+{
+  local $_ = shift;
+  ($_, s/^>// ? 1 : s/^<// ? -1 : die "$_ doesn't look like a path");
+}
+
+sub flow
+{
+  my $self = shift;
+  my $path = shift;
+  my ($point, $polarity) = parse_path $path;
+  die "$self doesn't have a flow point corresponding to $path"
+    unless $self->has_point($point);
+
+  if (@_ == 2)
+  {
+    $$self{admittances}{$path} = shift;
+    $$self{flows}{$path}       = shift;
+  }
+  else
+  {
+    die "$self\->flow: expected (path, admittance, flow) "
+      . "but got ($path, " . join(", ", @_) . ")";
+  }
+
+  $self;
+}
+#line 163 "pushback/router.md"
+sub package;                # () -> $our_new_class
+sub package_bind;           # ($name => $val, ...) -> $self
+
+sub gen_ctor;               # () -> $class_new_fn
+sub gen_stream_ctor;        # () -> $stream_ctor_fn
+sub gen_jit_flow;           # () -> $jit_flow_fn
+sub gen_jit_admittance;     # () -> $jit_admittance_fn
+#line 175 "pushback/router.md"
+sub package_name { $_[0]->{prefix} . $_[0]->{name} }
+sub package
+{
+  my $self = shift;
+  my $package = $self->package_name;
+  push @{"$package\::ISA"}, 'pushback::spanner'
+    unless grep /^pushback::spanner$/, @{"$package\::ISA"};
+
+  $self->package_bind(%{$$self{methods}},
+                      new            => $self->gen_ctor,
+                      from_stream    => $self->gen_stream_ctor,
+                      jit_flow       => $self->gen_jit_flow,
+                      jit_admittance => $self->gen_jit_admittance);
+}
+
+sub package_bind
+{
+  my $self = shift;
+  my $destination_package = $self->package_name;
+  while (@_)
+  {
+    my $name = shift;
+    my $val  = shift;
+    *{"$destination_package\::$name"} = $val;
+  }
+  $self;
+}
+#line 207 "pushback/router.md"
+sub jit_path_admittance
+{
+  my $router  = shift;
+  my $spanner = shift;
+  my $path    = shift;
+  my $jit     = shift;
+  my $flag    = \shift;
+  my $n       = \shift;
+  my $flow    = \shift;
+
+  return $jit->code('$flow = 0;', flow => $$flow)
+    unless exists $$router{admittances}{$path};
+
+  my $a = $$router{admittances}{$path};
+  return $router->jit_path_admittance($spanner, $a, $jit, $$flag, $$n, $$flow)
+    if is_path $a;
+
+  pushback::admittance->from($a, $spanner)->jit($jit, $$flag, $$n, $$flow);
+}
+
+sub gen_jit_admittance
+{
+  my $router = shift;
+  sub {
+    my $self  = shift;
+    my $point = shift;
+    my $jit   = shift;
+    my $flag  = \shift;
+    my $n     = \shift;
+    my $flow  = \shift;
+
+    my $point_name = $$self{point_lookup}{$point}
+      // die "$self isn't connected to $point";
+
+    $jit->code('if ($n > 0) {', n => $$n);
+    $router->jit_path_admittance(
+      $self, ">$point_name", $jit, $$flag, $$n, $$flow);
+    $jit->code('} else {');
+    $router->jit_path_admittance(
+      $self, "<$point_name", $jit, $$flag, $$n, $$flow);
+    $jit->code('}');
+  };
+}
+#line 12 "pushback/spanner.md"
 package pushback::spanner;
 use Scalar::Util qw/refaddr/;
 use overload qw/ "" name == equals /;
@@ -249,11 +431,16 @@ sub connected_to;           # pushback::spanner->connected_to(%points)
 sub point;                  # ($key) -> $point
 sub flow;                   # ($point, $offset, $n, $data) -> $n
 sub admittance;             # ($point, $n) -> $flow
-#line 22 "pushback/spanner.md"
+
+# Abstract methods that you'll need to implement
+sub jit_flow;               # ($point, $jit, $flag, $offset, $n, $data) -> $jit!
+sub jit_admittance;         # ($point, $jit, $flag, $n, $flow) -> $jit!
+#line 29 "pushback/spanner.md"
 sub connected_to
 {
   my $class = shift;
   my $self  = bless { points         => {@_},
+                      point_lookup   => {reverse @_},
                       flow_fns       => {},
                       admittance_fns => {} }, $class;
   $_->connect($self) for values %{$$self{points}};
@@ -277,7 +464,7 @@ sub admittance
   my $point = shift;
   ($$self{admittance_fns}{$point} // $self->jit_admittance_fn($point))->(@_);
 }
-#line 54 "pushback/spanner.md"
+#line 62 "pushback/spanner.md"
 sub jit_autoinvalidation
 {
   my ($self, $jit, $regen_method, $point) = @_;
@@ -347,17 +534,49 @@ BEGIN { eval "sub $_ { bless [shift, shift], 'pushback::admittance::$_' }"
         for qw/ plus union intersect if / }
 
 # Value coercion
+sub create
+{
+  my $type = shift;
+  "pushback::admittance::$type"->new(@_);
+}
+
 sub from
 {
-  my ($class, $val) = @_;
-  my $r = ref $val;
-  return pushback::admittance::n->new($val)  if !$r && looks_like_number $val;
-  return pushback::admittance::fn->new($val) if $r eq 'CODE';
-  return pushback::admittance::point->new($val, shift)
-    if $r =~ /^pushback::point/;
-  die "don't know how to turn $val of type $r into an admittance calculator";
+  my $class = shift;
+  my $val   = shift;
+  my $r     = ref $val;
+
+  return create n     => $val        if !$r && looks_like_number $val;
+  return create jit   => $val, @_    if !$r;
+  return create fn    => $val        if  $r eq 'CODE';
+  return create point => $val, shift if  $r =~ /^pushback::point/;
+  return $val                        if  $r =~ /^pushback::admittance::/;
+
+  die "don't know how to turn $val ($r) into an admittance calculator";
 }
-#line 35 "pushback/admittance.md"
+#line 45 "pushback/admittance.md"
+sub pushback::admittance::jit::new
+{
+  my $class = shift;
+  my $code  = shift;
+  bless { code     => $code,
+          bindings => shift }, $class;
+}
+
+sub pushback::admittance::jit::jit
+{
+  my $self = shift;
+  my $jit  = shift;
+  my $flag = \shift;
+  my $n    = \shift;
+  my $flow = \shift;
+
+  $jit->code($$self{code}, %{$$self{bindings}},
+                           flag => $$flag,
+                           n    => $$n,
+                           flow => $$flow);
+}
+#line 71 "pushback/admittance.md"
 sub pushback::admittance::n::new     { bless \(my $x = $_[1]), $_[0] }
 sub pushback::admittance::fn::new    { bless \(my $x = $_[1]), $_[0] }
 sub pushback::admittance::point::new { bless { point   => $_[1],
@@ -392,7 +611,7 @@ sub pushback::admittance::point::jit
   my $flow = \shift;
   $$self{point}->jit_admittance($$self{spanner}, $jit, $$flag, $$n, $$flow);
 }
-#line 74 "pushback/admittance.md"
+#line 110 "pushback/admittance.md"
 sub pushback::admittance::plus::jit
 {
   my $self = shift;
@@ -449,111 +668,6 @@ sub pushback::admittance::if::jit
   $$self[1]->jit($jit, $$flag, $$n, $$flow);
   $jit->code('if ($flow) {', flow => $$flow);
   $$self[0]->jit($jit, $$flag, $$n, $$flow)->code('}');
-}
-#line 5 "pushback/router.md"
-package pushback::router;
-sub new             # (name, qw/ point1 point2 ... pointN /) -> $router
-{
-  # new() is both a class and an instance method; branch off up front if it's
-  # being called on an instance.
-  my $class = shift;
-  return $class->instantiate(@_) if ref $class;
-
-  my $name = shift;
-  bless { name         => $name,
-          points       => [@_],     # [$pointname, $pointname, ...]
-          state        => {},       # var => $init_fn
-          methods      => {},       # name => $fn
-          streams      => {},       # name => $pointname
-          streamctors  => {},       # name => [$in_flowname, $init_fn]
-          path_aliases => {},       # path => $path
-          admittances  => {},       # path => $calculator
-          flows        => {} },     # path => $code
-        $class;
-}
-
-sub has_point { grep $_ eq $_[1], @{$_[0]->{points}} }
-#line 35 "pushback/router.md"
-sub new;            # (...) -> $spanner
-
-sub state;          # ($name => $init, ...) -> $self!
-sub flow;           #   ($path, $admittance, $onflow) -> $self!
-                    # | ($path, $path) -> $self!
-sub def;            # ($name => $method, ...) -> $self!
-
-sub streamctor;     # ($name, $in_flowpoint[, $init_fn]) -> $self!
-sub stream;         # ($name, $path) -> $self!
-#line 53 "pushback/router.md"
-sub state
-{
-  my $self = shift;
-  %{$$self{state}} = (%{$$self{state}}, @_);
-  $self;
-}
-
-sub def
-{
-  my $self = shift;
-  %{$$self{methods}} = (%{$$self{methods}}, @_);
-  $self;
-}
-#line 74 "pushback/router.md"
-sub streamctor
-{
-  my ($self, $name, $inpoint, $init_fn) = @_;
-  die "$self doesn't define $inpoint" unless $self->has_point($inpoint);
-
-  $$self{streamctors}{$name} = [$inpoint, $init_fn];
-  *{"pushback::stream::$name"} = sub { $self->from_stream($name, @_) };
-  $self;
-}
-
-sub stream
-{
-  my ($self, $name, $point) = @_;
-  die "$self doesn't define $point" unless $self->has_point($point);
-
-  $$self{streams}{$name} = $point;
-  $self;
-}
-#line 112 "pushback/router.md"
-sub is_path { shift =~ /^[<>](.*)/ }
-sub parse_path
-{
-  local $_ = shift;
-  ($_, s/^>// ? 1 : s/^<// ? -1 : die "$_ doesn't look like a path");
-}
-
-sub flow
-{
-  my $self = shift;
-  my $path = shift;
-  my ($point, $polarity) = parse_path $path;
-  die "$self doesn't have a flow point corresponding to $path"
-    unless $self->has_point($point);
-
-  # Two possibilities here. If we have two more arguments, we're defining a path
-  # in terms of admittance and flow; otherwise we're creating a path alias.
-  if (@_ == 2)
-  {
-    $$self{admittances}{$path} = shift;
-    $$self{flows}{$path}       = shift;
-  }
-  elsif (@_ == 1)
-  {
-    my $alias = shift;
-    my ($apoint, $apol) = parse_path $alias;
-    die "alias $path -> $alias refers to a nonexistent point $apoint"
-      unless $self->has_point($apoint);
-    $$self{path_aliases}{$path} = $alias;
-  }
-  else
-  {
-    die "$self\->flow: expected (path, path) or (path, admittance, flow) "
-      . "but got ($path, " . join(", ", @_) . ")";
-  }
-
-  $self;
 }
 #line 7 "pushback/stream.md"
 package pushback::stream;
