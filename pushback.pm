@@ -830,15 +830,9 @@ push @pushback::point::ISA, 'pushback::stream';
 pushback::router->new('pushback::seq', qw/ out /)
   ->stream('out')
   ->state(i => 0)
-  ->flow('<out', 1024, q{
-      print "seq outflow: offset = $offset, n = $n\n";
-      $offset = 0;
-      @$data[$offset .. $offset+$n-1] = $i..$i+$n-1;
-      $i += $n;
-      $n *= -1;
-    })
+  ->flow('<out', 1, q{ $$data[$offset] = $i++ })
   ->package;
-#line 21 "pushback/map.md"
+#line 20 "pushback/map.md"
 pushback::router->new('pushback::map', qw/ in out /)
   ->streamctor(map => 'in')
   ->stream('out')

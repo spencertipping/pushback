@@ -7,7 +7,6 @@ $ perl -I. -Mpushback -e '
     use warnings;
     pushback::seq->new->out->map(sub { shift() ** 2 })->out->each(sub {
       my ($offset, $n, $data) = @_;
-      print "@$data\n";
       print "$_\n" for @$data[$offset..$offset+$n-1]
     })->run([])' | head -n5
 0
