@@ -37,6 +37,8 @@ sub compile
   my $code  = join"\n", "use strict;use warnings;",
                         "sub{", $setup, @{$$self{code}}, "}";
 
+  print STDERR "$code\n";
+
   my $sub = eval $code;
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{shared}}{@args});

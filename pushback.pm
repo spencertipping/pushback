@@ -50,11 +50,13 @@ sub compile
   my $code  = join"\n", "use strict;use warnings;",
                         "sub{", $setup, @{$$self{code}}, "}";
 
+  print STDERR "$code\n";
+
   my $sub = eval $code;
   die "$@ compiling $code" if $@;
   $sub->(@{$$self{shared}}{@args});
 }
-#line 48 "pushback/jit.md"
+#line 50 "pushback/jit.md"
 sub gensym { "g" . $gensym++ }
 sub code
 {
@@ -83,7 +85,7 @@ sub code
   }
   $self;
 }
-#line 80 "pushback/jit.md"
+#line 82 "pushback/jit.md"
 sub child
 {
   my ($self, $end) = @_;
@@ -463,7 +465,7 @@ sub pushback::admittance::union::jit
   my $rflow;
   $$self[0]->jit($jit, $$flag, $$n, $lflow);
   $$self[1]->jit($jit, $$flag, $$n, $rflow);
-  $jit->code('$flow = $lflow > $rflow ? $lflow : $rflow;',
+  $jit->code('$flow = abs($lflow) > abs($rflow) ? $lflow : $rflow;',
     flow => $$flow, lflow => $lflow, rflow => $rflow);
 }
 
@@ -478,7 +480,7 @@ sub pushback::admittance::intersection::jit
   $$self[0]->jit($jit, $$flag, $$n, $$flow);
   $jit->code('if ($flow) {', flow => $$flow);
   $$self[1]->jit($jit, $$flag, $$n, $rflow);
-  $jit->code('  $flow = $rflow < $flow ? $rflow : $flow;',
+  $jit->code('  $flow = abs($rflow) < abs($flow) ? $rflow : $flow;',
                rflow => $rflow, flow => $$flow)
       ->code('}');
 }
@@ -717,9 +719,9 @@ sub jit_path_admittance
   my $a = $$router{admittances}{$path}
        // return $jit->code('$flow = 0;', flow => $$flow);
 
-  return pushback::admittance->from($spanner->point(substr $a, 1), $spanner)
+  return pushback::admittance->from($spanner->point($a), $spanner)
                              ->jit($jit, $$flag, $$n, $$flow)
-    if is_path $a;
+    if $router->has_point($a);
 
   pushback::admittance->from($a, $spanner)->jit($jit, $$flag, $$n, $$flow);
 }
@@ -741,7 +743,7 @@ sub gen_jit_admittance
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, ">$point_name", $jit, $$flag, $$n, $$flow);
-    $jit->code('} else { $n = -$n;', n => $$n);
+    $jit->code('} else {');
     $router->jit_path_admittance(
       $self, "<$point_name", $jit, $$flag, $$n, $$flow);
     $jit->code('}');
@@ -808,13 +810,15 @@ sub gen_jit_flow
     my $point_name = $$self{point_lookup}{$point}
       // die "$self isn't connected to $point";
 
+    $jit->code('print "ROUTER offset = $offset, n = $n\n";', offset => $$offset, n =>
+    $$n);
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_flow(
       $self, ">$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('} else { $n = -$n;', n => $$n);
+    $jit->code('} else {');
     $router->jit_path_flow(
       $self, "<$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('}');
+    $jit->code('}', n => $$n);
   };
 }
 #line 7 "pushback/stream.md"
@@ -850,7 +854,7 @@ sub jit_admittance
   my $flow  = \shift;
 
   # Always return data. Our target flow per request is 1k elements.
-  $jit->code(q{ $f = $n < 0 ? 1024 : 0; }, n => $$n, f => $$flow);
+  $jit->code(q{ $f = $n < 0 ? -1024 : 0; }, n => $$n, f => $$flow);
 }
 
 sub jit_flow
@@ -867,7 +871,7 @@ sub jit_flow
     q{
       if ($n < 0)
       {
-        $n = -$n;
+        $n *= -1;
         $offset = 0;
         @$data = $i .. $i+$n-1;
         $i += $n;
@@ -888,11 +892,12 @@ pushback::router->new('pushback::map', qw/ in out /)
   ->stream('out')
   ->state(fn => undef)
   ->init(sub { my $self = shift; $$self{fn} = shift })
-  ->flow('>in', '>out', q{
+  ->flow('>in', 'out', q{
+      print STDERR "offset = $offset, n = $n\n";
       @$data[$offset .. $offset+$n-1]
         = map &$fn($_), @$data[$offset .. $offset+$n-1];
     })
-  ->flow('<out', '<in', '>in')
+  ->flow('<out', 'in', '>in')
   ->package;
 #line 5 "pushback/copy.md"
 package pushback::copy;

@@ -288,9 +288,9 @@ sub jit_path_admittance
   my $a = $$router{admittances}{$path}
        // return $jit->code('$flow = 0;', flow => $$flow);
 
-  return pushback::admittance->from($spanner->point(substr $a, 1), $spanner)
+  return pushback::admittance->from($spanner->point($a), $spanner)
                              ->jit($jit, $$flag, $$n, $$flow)
-    if is_path $a;
+    if $router->has_point($a);
 
   pushback::admittance->from($a, $spanner)->jit($jit, $$flag, $$n, $$flow);
 }
@@ -312,7 +312,7 @@ sub gen_jit_admittance
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_admittance(
       $self, ">$point_name", $jit, $$flag, $$n, $$flow);
-    $jit->code('} else { $n = -$n;', n => $$n);
+    $jit->code('} else {');
     $router->jit_path_admittance(
       $self, "<$point_name", $jit, $$flag, $$n, $$flow);
     $jit->code('}');
@@ -383,13 +383,15 @@ sub gen_jit_flow
     my $point_name = $$self{point_lookup}{$point}
       // die "$self isn't connected to $point";
 
+    $jit->code('print "ROUTER offset = $offset, n = $n\n";', offset => $$offset, n =>
+    $$n);
     $jit->code('if ($n > 0) {', n => $$n);
     $router->jit_path_flow(
       $self, ">$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('} else { $n = -$n;', n => $$n);
+    $jit->code('} else {');
     $router->jit_path_flow(
       $self, "<$point_name", $jit, $$flag, $$offset, $$n, $$data);
-    $jit->code('}');
+    $jit->code('}', n => $$n);
   };
 }
 ```

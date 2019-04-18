@@ -45,7 +45,7 @@ sub jit_admittance
   my $flow  = \shift;
 
   # Always return data. Our target flow per request is 1k elements.
-  $jit->code(q{ $f = $n < 0 ? 1024 : 0; }, n => $$n, f => $$flow);
+  $jit->code(q{ $f = $n < 0 ? -1024 : 0; }, n => $$n, f => $$flow);
 }
 
 sub jit_flow
@@ -62,7 +62,7 @@ sub jit_flow
     q{
       if ($n < 0)
       {
-        $n = -$n;
+        $n *= -1;
         $offset = 0;
         @$data = $i .. $i+$n-1;
         $i += $n;
