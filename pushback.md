@@ -6,6 +6,7 @@ Quick table of contents, starting with the internals:
 - [Spanner](pushback/spanner.md)
 
 - [Admittance calculator](pushback/admittance.md)
+- [Router](pushback/router.md)
 - [Stream metaphor](pushback/stream.md)
 
 - [`seq` spanner](pushback/seq.md)

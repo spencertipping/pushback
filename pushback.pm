@@ -240,7 +240,7 @@ sub jit_flow
       fns => \@fns);
   }
 }
-#line 26 "pushback/spanner.md"
+#line 9 "pushback/spanner.md"
 package pushback::spanner;
 use Scalar::Util qw/refaddr/;
 use overload qw/ "" name == equals /;
@@ -249,7 +249,7 @@ sub connected_to;           # pushback::spanner->connected_to(%points)
 sub point;                  # ($key) -> $point
 sub flow;                   # ($point, $offset, $n, $data) -> $n
 sub admittance;             # ($point, $n) -> $flow
-#line 39 "pushback/spanner.md"
+#line 22 "pushback/spanner.md"
 sub connected_to
 {
   my $class = shift;
@@ -277,7 +277,7 @@ sub admittance
   my $point = shift;
   ($$self{admittance_fns}{$point} // $self->jit_admittance_fn($point))->(@_);
 }
-#line 71 "pushback/spanner.md"
+#line 54 "pushback/spanner.md"
 sub jit_autoinvalidation
 {
   my ($self, $jit, $regen_method, $point) = @_;
@@ -449,6 +449,111 @@ sub pushback::admittance::if::jit
   $$self[1]->jit($jit, $$flag, $$n, $$flow);
   $jit->code('if ($flow) {', flow => $$flow);
   $$self[0]->jit($jit, $$flag, $$n, $$flow)->code('}');
+}
+#line 5 "pushback/router.md"
+package pushback::router;
+sub new             # (name, qw/ point1 point2 ... pointN /) -> $router
+{
+  # new() is both a class and an instance method; branch off up front if it's
+  # being called on an instance.
+  my $class = shift;
+  return $class->instantiate(@_) if ref $class;
+
+  my $name = shift;
+  bless { name         => $name,
+          points       => [@_],     # [$pointname, $pointname, ...]
+          state        => {},       # var => $init_fn
+          methods      => {},       # name => $fn
+          streams      => {},       # name => $pointname
+          streamctors  => {},       # name => [$in_flowname, $init_fn]
+          path_aliases => {},       # path => $path
+          admittances  => {},       # path => $calculator
+          flows        => {} },     # path => $code
+        $class;
+}
+
+sub has_point { grep $_ eq $_[1], @{$_[0]->{points}} }
+#line 35 "pushback/router.md"
+sub new;            # (...) -> $spanner
+
+sub state;          # ($name => $init, ...) -> $self!
+sub flow;           #   ($path, $admittance, $onflow) -> $self!
+                    # | ($path, $path) -> $self!
+sub def;            # ($name => $method, ...) -> $self!
+
+sub streamctor;     # ($name, $in_flowpoint[, $init_fn]) -> $self!
+sub stream;         # ($name, $path) -> $self!
+#line 53 "pushback/router.md"
+sub state
+{
+  my $self = shift;
+  %{$$self{state}} = (%{$$self{state}}, @_);
+  $self;
+}
+
+sub def
+{
+  my $self = shift;
+  %{$$self{methods}} = (%{$$self{methods}}, @_);
+  $self;
+}
+#line 74 "pushback/router.md"
+sub streamctor
+{
+  my ($self, $name, $inpoint, $init_fn) = @_;
+  die "$self doesn't define $inpoint" unless $self->has_point($inpoint);
+
+  $$self{streamctors}{$name} = [$inpoint, $init_fn];
+  *{"pushback::stream::$name"} = sub { $self->from_stream($name, @_) };
+  $self;
+}
+
+sub stream
+{
+  my ($self, $name, $point) = @_;
+  die "$self doesn't define $point" unless $self->has_point($point);
+
+  $$self{streams}{$name} = $point;
+  $self;
+}
+#line 112 "pushback/router.md"
+sub is_path { shift =~ /^[<>](.*)/ }
+sub parse_path
+{
+  local $_ = shift;
+  ($_, s/^>// ? 1 : s/^<// ? -1 : die "$_ doesn't look like a path");
+}
+
+sub flow
+{
+  my $self = shift;
+  my $path = shift;
+  my ($point, $polarity) = parse_path $path;
+  die "$self doesn't have a flow point corresponding to $path"
+    unless $self->has_point($point);
+
+  # Two possibilities here. If we have two more arguments, we're defining a path
+  # in terms of admittance and flow; otherwise we're creating a path alias.
+  if (@_ == 2)
+  {
+    $$self{admittances}{$path} = shift;
+    $$self{flows}{$path}       = shift;
+  }
+  elsif (@_ == 1)
+  {
+    my $alias = shift;
+    my ($apoint, $apol) = parse_path $alias;
+    die "alias $path -> $alias refers to a nonexistent point $apoint"
+      unless $self->has_point($apoint);
+    $$self{path_aliases}{$path} = $alias;
+  }
+  else
+  {
+    die "$self\->flow: expected (path, path) or (path, admittance, flow) "
+      . "but got ($path, " . join(", ", @_) . ")";
+  }
+
+  $self;
 }
 #line 7 "pushback/stream.md"
 package pushback::stream;

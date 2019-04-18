@@ -4,23 +4,6 @@ base class that helps with things like JIT invalidation, directional flow, and
 admittance negotiation.
 
 
-## Declarative admittance
-It's a major bummer to write admittance logic by hand. It usually ends up
-looking like `$flow = $n > 0 ? $n : 0` in the best case, and in the worst case
-you're writing complicated logic to incorporate multiple JIT results.
-
-What we really want is to say something like this:
-
-```pl
-defadmittance(
-  '>source' => '>destination',      # source passes through to destination
-  '<source' => 0);                  # ...but blocks reverse flow
-```
-
-...and in most cases we'd assume a component would block flow, so we could drop
-the `<source` definition.
-
-
 ## Base API
 ```perl
 package pushback::spanner;
