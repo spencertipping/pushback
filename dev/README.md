@@ -10,3 +10,4 @@
 ## Design log
 - [2019 Apr 14 redesign](9414-redesign.md)
 - [2019 Apr 16 redesign](9416-redesign.md)
+- [2019 Apr 18 redesign](9418-redesign.md)
