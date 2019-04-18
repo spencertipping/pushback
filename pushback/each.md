@@ -13,9 +13,9 @@ sub pushback::stream::each
 sub new
 {
   my ($class, $from, $fn) = @_;
-  my $self = $class->connected_to(from => $from);
-  my $n = $self->admittance('from', -1);
-  my $offset;
+  my $self   = $class->connected_to(from => $from);
+  my $n      = $self->admittance('from', -1);
+  my $offset = 0;
   my $data;
   $$self{fn} = $fn;
   &$fn($offset, $n, $data) while $n = $self->flow('from', $offset, $n, $data);
@@ -49,7 +49,6 @@ sub jit_flow
       if ($n > 0)
       {
         &$fn($offset, $n, $data);
-        $n = -$n;
       }
       else
       {

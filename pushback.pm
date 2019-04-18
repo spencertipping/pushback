@@ -463,7 +463,7 @@ sub pushback::admittance::union::jit
   my $rflow;
   $$self[0]->jit($jit, $$flag, $$n, $lflow);
   $$self[1]->jit($jit, $$flag, $$n, $rflow);
-  $jit->code('$flow = abs($lflow) > abs($rflow) ? $lflow : $rflow;',
+  $jit->code('$flow = $lflow > $rflow ? $lflow : $rflow;',
     flow => $$flow, lflow => $lflow, rflow => $rflow);
 }
 
@@ -478,7 +478,7 @@ sub pushback::admittance::intersection::jit
   $$self[0]->jit($jit, $$flag, $$n, $$flow);
   $jit->code('if ($flow) {', flow => $$flow);
   $$self[1]->jit($jit, $$flag, $$n, $rflow);
-  $jit->code('  $flow = abs($rflow) < abs($flow) ? $rflow : $flow;',
+  $jit->code('  $flow = $rflow < $flow ? $rflow : $flow;',
                rflow => $rflow, flow => $$flow)
       ->code('}');
 }
@@ -850,7 +850,7 @@ sub jit_admittance
   my $flow  = \shift;
 
   # Always return data. Our target flow per request is 1k elements.
-  $jit->code(q{ $f = $n < 0 ? -1024 : 0; }, n => $$n, f => $$flow);
+  $jit->code(q{ $f = $n < 0 ? 1024 : 0; }, n => $$n, f => $$flow);
 }
 
 sub jit_flow
@@ -862,8 +862,8 @@ sub jit_flow
   my $offset = \shift;
   my $n      = \shift;
   my $data   = \shift;
-  $jit->code('#line 1 seq')
-      ->code(
+
+  $jit->code(
     q{
       if ($n < 0)
       {
@@ -945,9 +945,9 @@ sub pushback::stream::each
 sub new
 {
   my ($class, $from, $fn) = @_;
-  my $self = $class->connected_to(from => $from);
-  my $n = $self->admittance('from', -1);
-  my $offset;
+  my $self   = $class->connected_to(from => $from);
+  my $n      = $self->admittance('from', -1);
+  my $offset = 0;
   my $data;
   $$self{fn} = $fn;
   &$fn($offset, $n, $data) while $n = $self->flow('from', $offset, $n, $data);
@@ -981,7 +981,6 @@ sub jit_flow
       if ($n > 0)
       {
         &$fn($offset, $n, $data);
-        $n = -$n;
       }
       else
       {
