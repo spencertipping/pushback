@@ -56,6 +56,8 @@ What are the core operations here?
 This is a slippery boundary; before long the flowable stuff is going to start
 assuming process responsibilities.
 
+**TODO:** come up with a pithy way to describe flowability
+
 
 ## Redirection syntax options
 ```pl
@@ -80,3 +82,18 @@ JIT is pretty good but has a few problems:
 4. ...which are difficult to share across `->code` snippets
 5. We can't reuse the same `eval` result across multiple objects (with direct
    scalar access)
+
+A big part of (1) is just that we re-gensym everything per JIT operation, which
+is hugely wasteful if we know the scope ahead of time.
+
+(3) fixes (5); basically, we just need custom lvalues. I think we can get there
+if we have two layers of context, one where `$x` becomes `${$g0}` (what we have
+now) and one where it just becomes `$g0`.
+
+
+### JIT per object
+This makes a lot of sense, especially if we `defjit` or similar. Then we can
+potentially automate stuff like code reuse and we can share gensyms per class.
+If we do it right we can also get entry points and invalidation logic for free.
+Put differently, JIT lifecycles are more closely related to objects than they
+are to individual specializations.

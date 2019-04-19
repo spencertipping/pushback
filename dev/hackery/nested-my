@@ -1,0 +1,14 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+# This does exactly what you think, and doesn't produce warnings.
+# I figured, just checking.
+{
+  my $x = 10;
+  {
+    my $x = 20;
+    print "$x\n";
+  }
+  print "$x\n";
+}
