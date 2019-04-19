@@ -69,3 +69,14 @@ $foo >> pushback::cat >> $bar;
 pushback::cat < './foo' > './bar';
 '<file://foo' | pushback::cat | '>file://bar';
 ```
+
+
+## While we're at it: JIT stuff
+JIT is pretty good but has a few problems:
+
+1. It's slow
+2. We have to rebind variables for every `->code` call
+3. We have to bind `my` variables for abstract gensyms...
+4. ...which are difficult to share across `->code` snippets
+5. We can't reuse the same `eval` result across multiple objects (with direct
+   scalar access)
