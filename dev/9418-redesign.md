@@ -56,7 +56,9 @@ What are the core operations here?
 This is a slippery boundary; before long the flowable stuff is going to start
 assuming process responsibilities.
 
-**TODO:** come up with a pithy way to describe flowability
+`flowable` objects represent the dimensional size of data relative to some
+container. Strings, arrays, etc are flowable. Flowability _isn't_ for people
+using data; it's for people bundling it. Flowability is a shipping container.
 
 
 ## Redirection syntax options
@@ -88,7 +90,8 @@ is hugely wasteful if we know the scope ahead of time.
 
 (3) fixes (5); basically, we just need custom lvalues. I think we can get there
 if we have two layers of context, one where `$x` becomes `${$g0}` (what we have
-now) and one where it just becomes `$g0`.
+now) and one where it just becomes `$g0`. Maybe we just have `$^x -> $g0` or
+something.
 
 
 ### JIT per object
