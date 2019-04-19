@@ -2,6 +2,8 @@
 Pushback is an IO and code multiplexer for Perl. It's sort of like a little
 operating system whose system call interface supports Perl values.
 
+**Not usable yet.**
+
 
 ## Documentation
 See the [literate source code](pushback.md) for all the gory details as well as
