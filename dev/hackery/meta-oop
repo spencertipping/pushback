@@ -1,0 +1,21 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+package def_is_sub;
+sub def
+{
+  no strict 'refs';
+  my ($class, $name, $code) = @_;
+  *{"$class\::$name"} = $code;
+}
+
+package testclass;
+BEGIN { push our @ISA, 'def_is_sub' }
+
+__PACKAGE__->def(foo => sub { print "hi there\n" });
+testclass->def(bar => sub { print "...again\n" });
+
+package something_else;
+testclass->foo();
+testclass->bar();

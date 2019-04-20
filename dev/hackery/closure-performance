@@ -1,0 +1,18 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my $x;
+
+my $none = sub { my $x; $x += shift };
+my $f = sub { $x += shift };
+my $g = (sub { my $y = 0; sub { $x += shift } })->();
+my $h = (sub { my $z = 0; (sub { my $y = 0; sub { $x += shift } })->()})->();
+
+timethese 10000000, {
+  none     => sub { &$none(1) },
+  closure1 => sub { &$f(1) },
+  closure2 => sub { &$g(1) },
+  closure3 => sub { &$h(1) },
+};

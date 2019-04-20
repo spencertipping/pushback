@@ -24,5 +24,34 @@
 
 use v5.14;
 use strict;
-use warnings;1;
+use warnings;
+#line 59 "pushback/jitobject.md"
+package pushback::jitclass;
+sub new
+{
+  my ($class, $package, @ivars) = @_;
+  bless { package => $package,
+          methods => {},
+          ivars   => \@ivars }, $class;
+}
+#line 72 "pushback/jitobject.md"
+sub def;                      # ($name => sub {...}) -> $class
+sub defjit;                   # ([@args], [@ret], $name => q{...}) -> $class
+#line 82 "pushback/jitobject.md"
+sub def
+{
+  no strict 'refs';
+  my $class = shift;
+  while (@_)
+  {
+    my $name = shift;
+    *{"$$class{package}\::$name"} = shift;
+  }
+  $class;
+}
+#line 101 "pushback/jitobject.md"
+sub defjit
+{
+}
+1;
 __END__
