@@ -1,4 +1,4 @@
-# JIT-flattening object
+# JIT metaclass
 The idea here is that we have normal OOP-style objects, but we want to
 specialize some call paths between them to eliminate both Perl's OOP overhead
 and its function calling overhead. Perl gives us a lot of latitude because we
@@ -61,8 +61,9 @@ use Scalar::Util qw/refaddr/;
 sub new
 {
   my ($class, $package, @ivars) = @_;
-  bless { package => $package,
-          ivars   => \@ivars }, $class;
+  my $self = bless { package => $package,
+                     ivars   => \@ivars }, $class;
+  $self->bind_invalidation_methods;
 }
 ```
 
@@ -70,8 +71,48 @@ sub new
 ### Metaclass API
 ```perl
 sub def;                      # ($name => sub {...}) -> $class
-sub defop;                    # ($name => [@args], q{...}) -> $class
-sub defjit;                   # ($name => sub {...}) -> $class
+sub defjit;                   # ($name => [@args], q{...}) -> $class
+```
+
+
+### Deoptimization (JIT invalidation)
+JIT specializations become invalid when an object's call graph changes. To
+accommodate this, we need each JIT-enabled object to hold a reference to any
+specialization it's involved with. This is done with two methods:
+
+```pl
+$object->invalidate_jit_for('name');
+$object->add_invalidation_flag(name => $jit->invalidation_flag);
+```
+
+```perl
+sub bind_invalidation_methods
+{
+  no strict 'refs';
+  my $class = shift;
+  *{"$$class{package}\::add_invalidation_flag"} = sub
+  {
+    my $self = shift;
+    my $name = shift;
+    my $flags = $$self{jit_invalidation_flags_}{$name} //= [];
+    push @$flags, \shift;
+    Scalar::Util::weaken $$flags[-1];
+    $self;
+  };
+
+  *{"$$class{package}\::invalidate_jit_for"} = sub
+  {
+    my $self = shift;
+    my $name = shift;
+    my $flags = $$self{jit_invalidation_flags_}{$name};
+    return $self unless defined $flags;
+    defined and $$_ = 1 for @$flags;
+    delete $$self{jit_invalidation_flags_}{$name};
+    $self;
+  };
+
+  $class;
+}
 ```
 
 
@@ -181,7 +222,7 @@ sub defjit
     {
       my $self = shift;
       my $jit  = shift;
-      #$self->invalidate_on($name, $jit);
+      $self->add_invalidation_flag($name, $jit->invalidation_flag);
       $jit->code(&$method($self, \@_,
                           $jit->refs, $jit->gensym_id, $jit->ref_gensyms));
     };
@@ -200,15 +241,17 @@ package pushback::jitcompiler;
 sub new
 {
   my $class = shift;
-  bless { fragments   => [],
-          gensym_id   => \(my $gensym = 0),
-          refs        => {},
-          ref_gensyms => {} }, $class;
+  bless { fragments    => [],
+          invalidation => \shift,
+          gensym_id    => \(my $gensym = 0),
+          refs         => {},
+          ref_gensyms  => {} }, $class;
 }
 
-sub gensym_id   { shift->{gensym_id} }
-sub refs        { shift->{refs} }
-sub ref_gensyms { shift->{ref_gensyms} }
+sub gensym_id         { shift->{gensym_id} }
+sub refs              { shift->{refs} }
+sub ref_gensyms       { shift->{ref_gensyms} }
+sub invalidation_flag { shift->{invalidation} }
 
 sub code
 {

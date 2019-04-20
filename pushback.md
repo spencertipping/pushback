@@ -45,10 +45,10 @@ use warnings;
 ```
 
 
-## Design patterns
+## Internals: design patterns
 Pushback uses three ideas pervasively:
 
-- [JIT-flattening objects](pushback/jit.md)
+- [JIT metaclass and compiler](pushback/jit.md)
 - [Flowable projection](pushback/flowable.md)
 - [Streaming objects](pushback/streaming.md)
 

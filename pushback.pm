@@ -31,14 +31,42 @@ use Scalar::Util qw/refaddr/;
 sub new
 {
   my ($class, $package, @ivars) = @_;
-  bless { package => $package,
-          ivars   => \@ivars }, $class;
+  my $self = bless { package => $package,
+                     ivars   => \@ivars }, $class;
+  $self->bind_invalidation_methods;
 }
-#line 72 "pushback/jit.md"
+#line 73 "pushback/jit.md"
 sub def;                      # ($name => sub {...}) -> $class
-sub defop;                    # ($name => [@args], q{...}) -> $class
-sub defjit;                   # ($name => sub {...}) -> $class
-#line 84 "pushback/jit.md"
+sub defjit;                   # ($name => [@args], q{...}) -> $class
+#line 89 "pushback/jit.md"
+sub bind_invalidation_methods
+{
+  no strict 'refs';
+  my $class = shift;
+  *{"$$class{package}\::add_invalidation_flag"} = sub
+  {
+    my $self = shift;
+    my $name = shift;
+    my $flags = $$self{jit_invalidation_flags_}{$name} //= [];
+    push @$flags, \shift;
+    Scalar::Util::weaken $$flags[-1];
+    $self;
+  };
+
+  *{"$$class{package}\::invalidate_jit_for"} = sub
+  {
+    my $self = shift;
+    my $name = shift;
+    my $flags = $$self{jit_invalidation_flags_}{$name};
+    return $self unless defined $flags;
+    defined and $$_ = 1 for @$flags;
+    delete $$self{jit_invalidation_flags_}{$name};
+    $self;
+  };
+
+  $class;
+}
+#line 125 "pushback/jit.md"
 sub def
 {
   no strict 'refs';
@@ -50,7 +78,7 @@ sub def
   }
   $class;
 }
-#line 118 "pushback/jit.md"
+#line 159 "pushback/jit.md"
 sub jit_op_arg
 {
   my ($arg, $index) = @_;
@@ -117,7 +145,7 @@ sub defjit
     {
       my $self = shift;
       my $jit  = shift;
-      #$self->invalidate_on($name, $jit);
+      $self->add_invalidation_flag($name, $jit->invalidation_flag);
       $jit->code(&$method($self, \@_,
                           $jit->refs, $jit->gensym_id, $jit->ref_gensyms));
     };
@@ -125,20 +153,22 @@ sub defjit
 
   $self;
 }
-#line 199 "pushback/jit.md"
+#line 240 "pushback/jit.md"
 package pushback::jitcompiler;
 sub new
 {
   my $class = shift;
-  bless { fragments   => [],
-          gensym_id   => \(my $gensym = 0),
-          refs        => {},
-          ref_gensyms => {} }, $class;
+  bless { fragments    => [],
+          invalidation => \shift,
+          gensym_id    => \(my $gensym = 0),
+          refs         => {},
+          ref_gensyms  => {} }, $class;
 }
 
-sub gensym_id   { shift->{gensym_id} }
-sub refs        { shift->{refs} }
-sub ref_gensyms { shift->{ref_gensyms} }
+sub gensym_id         { shift->{gensym_id} }
+sub refs              { shift->{refs} }
+sub ref_gensyms       { shift->{ref_gensyms} }
+sub invalidation_flag { shift->{invalidation} }
 
 sub code
 {
