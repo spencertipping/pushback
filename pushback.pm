@@ -27,17 +27,20 @@ use strict;
 use warnings;
 #line 59 "pushback/jitobject.md"
 package pushback::jitclass;
+use Scalar::Util qw/refaddr/;
 sub new
 {
   my ($class, $package, @ivars) = @_;
   bless { package => $package,
           methods => {},
+          jit_ops => {},
           ivars   => \@ivars }, $class;
 }
-#line 72 "pushback/jitobject.md"
+#line 74 "pushback/jitobject.md"
 sub def;                      # ($name => sub {...}) -> $class
-sub defjit;                   # ([@args], [@ret], $name => q{...}) -> $class
-#line 82 "pushback/jitobject.md"
+sub defop;                    # ($name => [@args], q{...}) -> $class
+sub defjit;                   # ($name => sub {...}) -> $class
+#line 86 "pushback/jitobject.md"
 sub def
 {
   no strict 'refs';
@@ -49,9 +52,63 @@ sub def
   }
   $class;
 }
-#line 101 "pushback/jitobject.md"
-sub defjit
+#line 113 "pushback/jitobject.md"
+our $gensym_id = 0;
+sub gensym { "_" . ++$gensym_id }
+
+sub jit_op_arg
 {
+  my ($arg, $index) = @_;
+  my $sigil = $arg =~ s/^\^// ? '$' : '$$';
+  "push \@code, '$sigil' . ("
+    . "\$\$ref_gensyms{Scalar::Util::refaddr \$\$arg_refs[$index]}"
+    . " //= " . __PACKAGE__ . "::gensym);";
+}
+
+sub jit_op_ivar
+{
+  my $name = shift;
+  "push \@code, '\$' . ("
+    . "\$\$ref_gensyms{Scalar::Util::refaddr \\\$\$self{$name}}"
+    . " //= " . __PACKAGE__ . "::gensym);";
+}
+
+sub defop
+{
+  my ($self, $name, $args, $code) = @_;
+  my $all_vars  = join"|", @{$$self{ivars}}, map +("\\^$_", $_), @$args;
+  my $var_regex = qr/\$($all_vars)\b/;
+  my %args      = map +(  $$args[$_]  => $_,
+                        "^$$args[$_]" => $_), 0..$#$args;
+  my @constants;
+  my @fragments = q[
+  sub {
+    my @constants = @_;
+    sub {
+      my ($self, $arg_refs, $ref_gensyms) = @_;
+      my @code; ];
+
+  my $last = 0;
+  while ($code =~ /$var_regex/g)
+  {
+    my $v = $1;
+    my $n = @constants;
+    push @constants, substr $code, $last, pos($code) - length($v) - 1 - $last;
+    push @fragments, "push \@code, \$constants[$n];",
+                     exists $args{$v} ? jit_op_arg($v, $args{$v})
+                                      : jit_op_ivar($v);
+    $last = pos $code;
+  }
+
+  push @constants, substr $code, $last;
+  push @fragments, q[
+      join"\n", @code;
+    }
+  }];
+
+  my $fn = eval join"\n", "#line 1 \"$$self{package} defop $name\"", @fragments;
+  die "$@ compiling @fragments" if $@;
+  $$self{jit_ops}{$name} = &$fn(@constants);
+  $self;
 }
 1;
-__END__

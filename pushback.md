@@ -56,5 +56,4 @@ Pushback uses three ideas pervasively:
 ## Footer
 ```text
 1;
-__END__
 ```
