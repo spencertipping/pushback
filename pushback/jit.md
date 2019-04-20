@@ -62,8 +62,6 @@ sub new
 {
   my ($class, $package, @ivars) = @_;
   bless { package => $package,
-          methods => {},
-          jit_ops => {},
           ivars   => \@ivars }, $class;
 }
 ```
@@ -98,11 +96,18 @@ sub def
 
 
 ### JIT method definition
-JIT methods are defined in two parts. First we have `defop`, which creates an
-inlinable code fragment that acts as a primitive for inlining purposes. `defop`
-manages the machinery of identifying and closing over instance variables, which
-means we need to convert a string into a string-generating function. Our
-resulting function takes `$self`, `\@arg_refs`, and `\%ref_gensyms`, updates
+JIT methods are just like regular methods, except that they trace themselves
+into a JIT compiler provided as the first argument. That is:
+
+```pl
+my $x = $obj->method(1, 2, 3);          # non-JIT
+$obj->jitmethod($jit, 1, 2, 3);         # JIT
+```
+
+`defjit` manages the machinery of identifying and closing over instance
+variables, which means we need to convert a string into a string-generating
+function. Our resulting function takes `$self`, `\@arg_refs`, `\%refs`,
+`\$gensym`, and `\%ref_gensyms`, updates `\%refs`, `\$gensym_id`, and
 `\%ref_gensyms`, and returns a new code snippet that includes the gensyms it
 bound.
 
@@ -110,27 +115,30 @@ bound.
 JIT compiler is JIT compiled.
 
 ```perl
-our $gensym_id = 0;
-sub gensym { "_" . ++$gensym_id }
-
 sub jit_op_arg
 {
   my ($arg, $index) = @_;
   my $sigil = $arg =~ s/^\^// ? '$' : '$$';
-  "push \@code, '$sigil' . ("
-    . "\$\$ref_gensyms{Scalar::Util::refaddr \$\$arg_refs[$index]}"
-    . " //= " . __PACKAGE__ . "::gensym);";
+  qq{
+    \$ref = Scalar::Util::refaddr \\\$\$arg_refs[$index];
+    \$\$refs{\$ref} = \\\$\$arg_refs[$index];
+    push \@code, '$sigil' .
+      (\$\$ref_gensyms{\$ref} //= \"_\" . ++\$\$gensym);
+  };
 }
 
 sub jit_op_ivar
 {
   my $name = shift;
-  "push \@code, '\$' . ("
-    . "\$\$ref_gensyms{Scalar::Util::refaddr \\\$\$self{$name}}"
-    . " //= " . __PACKAGE__ . "::gensym);";
+  qq{
+    \$ref = Scalar::Util::refaddr \\\$\$self{$name};
+    \$\$refs{\$ref} = \\\$\$self{$name};
+    push \@code, '\$\$' .
+      (\$\$ref_gensyms{\$ref} //= \"_\" . ++\$\$gensym);
+  };
 }
 
-sub defop
+sub defjit
 {
   my ($self, $name, $args, $code) = @_;
   my $all_vars  = join"|", @{$$self{ivars}}, map +("\\^$_", $_), @$args;
@@ -138,38 +146,106 @@ sub defop
   my %args      = map +(  $$args[$_]  => $_,
                         "^$$args[$_]" => $_), 0..$#$args;
   my @constants;
-  my @fragments = q[
+  my @fragments = (q[
   sub {
-    my @constants = @_;
+    my $constants = shift;
     sub {
-      my ($self, $arg_refs, $ref_gensyms) = @_;
-      my @code; ];
+      my ($self, $arg_refs, $refs, $gensym, $ref_gensyms) = @_;
+      my $ref; ],
+    "my \@code = q{#line 1 \"$$self{package}\::$name\"};");
 
   my $last = 0;
   while ($code =~ /$var_regex/g)
   {
     my $v = $1;
-    my $n = @constants;
     push @constants, substr $code, $last, pos($code) - length($v) - 1 - $last;
-    push @fragments, "push \@code, \$constants[$n];",
+    push @fragments, "push \@code, \$\$constants[$#constants];",
                      exists $args{$v} ? jit_op_arg($v, $args{$v})
                                       : jit_op_ivar($v);
     $last = pos $code;
   }
 
   push @constants, substr $code, $last;
-  push @fragments, q[
+  push @fragments, "push \@code, \$\$constants[$#constants];",
+                   q[
       join"\n", @code;
     }
   }];
 
-  my $fn = eval join"\n", "#line 1 \"$$self{package} defop $name\"", @fragments;
+  my $fn = eval join"\n", "#line 1 \"$$self{package}\::$name'\"", @fragments;
   die "$@ compiling @fragments" if $@;
-  $$self{jit_ops}{$name} = &$fn(@constants);
+  my $method = &$fn(\@constants);
+  {
+    no strict 'refs';
+    *{"$$self{package}\::$name"} = sub
+    {
+      my $self = shift;
+      my $jit  = shift;
+      #$self->invalidate_on($name, $jit);
+      $jit->code(&$method($self, \@_,
+                          $jit->refs, $jit->gensym_id, $jit->ref_gensyms));
+    };
+  }
+
   $self;
 }
 ```
 
 
 ## JIT compiler
-This is where we collect operations and references.
+This is where we collect operations and references. It's surprisingly boring.
+
+```perl
+package pushback::jitcompiler;
+sub new
+{
+  my $class = shift;
+  bless { fragments   => [],
+          gensym_id   => \(my $gensym = 0),
+          refs        => {},
+          ref_gensyms => {} }, $class;
+}
+
+sub gensym_id   { shift->{gensym_id} }
+sub refs        { shift->{refs} }
+sub ref_gensyms { shift->{ref_gensyms} }
+
+sub code
+{
+  my $self = shift;
+  push @{$$self{fragments}}, shift;
+  $self;
+}
+
+sub compile
+{
+  my $self        = shift;
+  my @gensyms     = sort keys %{$$self{ref_gensyms}};
+  my $gensym_vars = sprintf "my (%s) = \@_;",
+                    join",", map "\$$_", @{$$self{ref_gensyms}}{@gensyms};
+  my $code        = join"\n", "sub{", $gensym_vars, @{$$self{fragments}}, "}";
+  my $fn          = eval "use strict;use warnings;$code";
+  die "$@ compiling $code" if $@;
+  &$fn(@{$$self{refs}}{@gensyms});
+}
+```
+
+Here's what we have so far:
+
+```bash
+$ perl -I. -Mpushback -e '
+    use strict;
+    use warnings;
+    pushback::jitclass->new("foo", qw/ x y /)
+      ->def(normal => sub { shift->{x} })
+      ->defjit(inc_x => ["by"], q{ $x += $by; });
+    my $foo_inst = bless { x => 0, y => 0 }, "foo";
+    print "initial x: " . $foo_inst->normal . "\n";
+    my $jit = pushback::jitcompiler->new;
+    $foo_inst->inc_x($jit, 1);
+    $foo_inst->inc_x($jit, 2);
+    $jit->compile;
+    print "post-jit x: " . $foo_inst->normal . "\n"'
+initial x: 0
+post-jit x: 3
+```

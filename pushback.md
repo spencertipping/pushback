@@ -48,7 +48,7 @@ use warnings;
 ## Design patterns
 Pushback uses three ideas pervasively:
 
-- [JIT-flattening objects](pushback/jitobject.md)
+- [JIT-flattening objects](pushback/jit.md)
 - [Flowable projection](pushback/flowable.md)
 - [Streaming objects](pushback/streaming.md)
 

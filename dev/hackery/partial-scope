@@ -1,0 +1,22 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+package foo;
+our $still_running = 1;
+sub DESTROY { print "reclaimed ${+shift}\n" if $foo::still_running }
+
+package the_usual;
+
+my $fn;
+my $fn2;
+{
+  my $foo1 = bless \(my $foo1_str = "foo1"), 'foo';
+  my $foo2 = bless \(my $foo2_str = "foo2"), 'foo';
+  $fn = sub { $foo2 };
+  $fn2 = sub { eval shift };
+}
+
+my $val = &$fn2("\$foo1");
+
+$foo::still_running = 0;
