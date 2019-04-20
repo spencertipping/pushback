@@ -5,11 +5,5 @@ cd "$(dirname "$0")"
 dev/markcheck
 
 rm -f pushback.pm
-{
-  cat pushback/header.pm
-  dev/unlit --perl pushback.md
-  echo '1;'
-  echo '__END__'
-} > pushback.pm
-
+dev/unlit --perl --text pushback.md > pushback.pm
 chmod 0444 pushback.pm

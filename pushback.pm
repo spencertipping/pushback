@@ -24,6 +24,5 @@
 
 use v5.14;
 use strict;
-use warnings;
-1;
+use warnings;1;
 __END__
