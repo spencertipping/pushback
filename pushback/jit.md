@@ -69,7 +69,7 @@ sub new
 
 
 ### Metaclass API
-```perl
+```pl
 sub def;                      # ($name => sub {...}) -> $class
 sub defjit;                   # ($name => [@args], q{...}) -> $class
 ```

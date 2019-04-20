@@ -35,9 +35,6 @@ sub new
                      ivars   => \@ivars }, $class;
   $self->bind_invalidation_methods;
 }
-#line 73 "pushback/jit.md"
-sub def;                      # ($name => sub {...}) -> $class
-sub defjit;                   # ($name => [@args], q{...}) -> $class
 #line 89 "pushback/jit.md"
 sub bind_invalidation_methods
 {
@@ -188,4 +185,26 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
+#line 67 "pushback/flowable.md"
+pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
+  ->def(new =>
+    sub {
+      my $class = shift;
+      bless { data   => @_ ? \shift : \(my $buf = ""),
+              offset => 0,
+              n      => 0 }, $class;
+    })
+
+  ->defjit(intersect => ['$fn'], '$n = $fn if $fn < $n;')
+  ->defjit(union     => ['$fn'], '$n = $fn if $fn > $n;')
+  ->defjit(if_start  => [], 'if ($n) {')
+  ->defjit(if_end    => [], '}')
+  ->def(if => sub
+    {
+      my ($self, $jit, $fn) = @_;
+      $self->if_start($jit);
+      &$fn($jit, $self);
+      $self->if_end($jit);
+      $self;
+    });
 1;
