@@ -58,6 +58,7 @@ three logical operations involved:
 1. `$flowable->intersect($flowable)`: take the minimum admittance
 2. `$flowable->union($flowable)`: take the maximum admittance
 3. `if ($flowable > 0) { ... }`: condition on nonzero admittance
+4. `$flowable->zero`: set admittance to zero to disable dataflow
 
 Anything else is up to type-specific streams.
 
@@ -75,6 +76,7 @@ pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
 
   ->defjit(intersect => ['$fn'], '$n = $fn if $fn < $n;')
   ->defjit(union     => ['$fn'], '$n = $fn if $fn > $n;')
+  ->defjit(zero      => [], '$n = 0;')
   ->defjit(if_start  => [], 'if ($n) {')
   ->defjit(if_end    => [], '}')
   ->def(if => sub

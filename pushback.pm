@@ -185,7 +185,7 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
-#line 67 "pushback/flowable.md"
+#line 68 "pushback/flowable.md"
 pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
   ->def(new =>
     sub {
@@ -197,6 +197,7 @@ pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
 
   ->defjit(intersect => ['$fn'], '$n = $fn if $fn < $n;')
   ->defjit(union     => ['$fn'], '$n = $fn if $fn > $n;')
+  ->defjit(zero      => [], '$n = 0;')
   ->defjit(if_start  => [], 'if ($n) {')
   ->defjit(if_end    => [], '}')
   ->def(if => sub
