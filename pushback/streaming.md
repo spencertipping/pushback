@@ -49,7 +49,12 @@ Similarly, `io::fd(1)` uses an input port. Port objects don't do a lot, but they
 do contain logic that we'd otherwise have to duplicate so I've pulled them into
 their own abstraction to save some work later on.
 
-**TODO:** who cares about flow direction?
+Ports have an interesting constraint in that they're reciprocally connected. We
+need backlinks because IO could originate from any endpoint; unfortunately, this
+also means we need a strategy to break those links and that's where things get
+difficult.
+
+**TODO:** ports ... a good thing? I'm not convinced.
 
 ```perl
 package pushback::port::sum;

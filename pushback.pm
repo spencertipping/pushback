@@ -217,10 +217,10 @@ pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
       $self->if_end_($jit);
       $self;
     });
-#line 55 "pushback/streaming.md"
+#line 60 "pushback/streaming.md"
 package pushback::port::sum;
 sub new { bless {}, shift }
-#line 60 "pushback/streaming.md"
+#line 65 "pushback/streaming.md"
 package pushback::port::broadcast;
 sub new { bless {}, shift }
 1;
