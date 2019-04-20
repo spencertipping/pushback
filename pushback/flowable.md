@@ -52,18 +52,21 @@ structures.
 
 
 ## Flowable algebra and API
-We don't need to know very much about a dataflow to negotiate it. There are
-three logical operations involved:
+We don't need to know very much about a dataflow to negotiate it. There are just
+a few logical operations involved:
 
 1. `$flowable->intersect($flowable)`: take the minimum admittance
-2. `$flowable->union($flowable)`: take the maximum admittance
+2. `$flowable->add($flowable)`: sum two admittances
 3. `if ($flowable > 0) { ... }`: condition on nonzero admittance
 4. `$flowable->zero`: set admittance to zero to disable dataflow
 
-Anything else is up to type-specific streams.
+Anything else, including figuring out the actual transfer it describes, is up to
+type-specific streams.
 
 
 ## Byte array flowable
+...i.e. a Perl string.
+
 ```perl
 pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
   ->def(new =>
@@ -74,17 +77,18 @@ pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
               n      => 0 }, $class;
     })
 
-  ->defjit(intersect => ['$fn'], '$n = $fn if $fn < $n;')
-  ->defjit(union     => ['$fn'], '$n = $fn if $fn > $n;')
-  ->defjit(zero      => [], '$n = 0;')
-  ->defjit(if_start  => [], 'if ($n) {')
-  ->defjit(if_end    => [], '}')
+  ->defjit(intersect_ => ['$fn'], '$n = $fn if $fn < $n;')
+  ->defjit(add_       => ['$fn'], '$n += $fn;')
+  ->defjit(zero_      => [],      '$n = 0;')
+  ->defjit(if_start_  => [],      'if ($n) {')
+  ->defjit(if_end_    => [],      '}')
+
   ->def(if => sub
     {
       my ($self, $jit, $fn) = @_;
-      $self->if_start($jit);
+      $self->if_start_($jit);
       &$fn($jit, $self);
-      $self->if_end($jit);
+      $self->if_end_($jit);
       $self;
     });
 ```

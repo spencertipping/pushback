@@ -70,8 +70,19 @@ sub new
 
 ### Metaclass API
 ```pl
+sub isa;                      # (@base_classes...) -> $class
 sub def;                      # ($name => sub {...}) -> $class
 sub defjit;                   # ($name => [@args], q{...}) -> $class
+```
+
+```perl
+sub isa
+{
+  no strict 'refs';
+  my $class = shift;
+  push @{"$$class{package}\::ISA"}, @_;
+  $class;
+}
 ```
 
 
