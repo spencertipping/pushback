@@ -39,7 +39,9 @@ is unavailable. We can also avoid the work required to format the output string
 
 The forked output from `io::fd(0)` will cause each flow to be duplicated and
 sent to both downstream consumers. This is why we need flowables to support
-intersection: we want to send the lower of the two admittances.
+intersection: we want to send the lower of the two admittances. (If we try to
+send more, one of the writes will be truncated and we'll be forced to either
+buffer or drop the data.)
 
 
 ## Connecting objects together
