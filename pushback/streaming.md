@@ -42,26 +42,13 @@ sent to both downstream consumers. This is why we need flowables to support
 intersection: we want to send the lower of the two admittances.
 
 
-## Ports
-`io::fd(0)` delegates its connected-ness to an output port, which is a blessed
-hash that maintains its connections and distributes admittance and data flow.
-Similarly, `io::fd(1)` uses an input port. Port objects don't do a lot, but they
-do contain logic that we'd otherwise have to duplicate so I've pulled them into
-their own abstraction to save some work later on.
+## Connecting objects together
+Let's state a few obvious things:
 
-Ports have an interesting constraint in that they're reciprocally connected. We
-need backlinks because IO could originate from any endpoint; unfortunately, this
-also means we need a strategy to break those links and that's where things get
-difficult.
-
-**TODO:** ports ... a good thing? I'm not convinced.
-
-```perl
-package pushback::port::sum;
-sub new { bless {}, shift }
-```
-
-```perl
-package pushback::port::broadcast;
-sub new { bless {}, shift }
-```
+1. An object can (and usually does) have multiple connection ports
+2. A connection port can have multiple connections to different places
+3. Connections are uniquely identified by port pairs
+4. Objects can't be involved in reference cycles, although ports/edges can
+5. Edges must link their endpoints bidirectionally since IO can come from either
+   direction
+6. Connection ports may be bidirectional, although they tend not to be
