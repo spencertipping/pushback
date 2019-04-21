@@ -46,11 +46,10 @@ use warnings;
 
 
 ## Internals: design patterns
-Pushback uses three ideas pervasively:
-
 - [JIT metaclass and compiler](pushback/jit.md)
 - [Flowable projection](pushback/flowable.md)
-- [Streaming objects](pushback/streaming.md)
+- [Object address sets](pushback/objectset.md)
+- [Process metaclass](pushback/process.md)
 
 
 ## Footer

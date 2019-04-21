@@ -217,4 +217,42 @@ pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
       $self->if_end_($jit);
       $self;
     });
+#line 22 "pushback/objectset.md"
+package pushback::objectset;
+use Scalar::Util qw/weaken/;
+
+sub new { bless ["\x01"], shift }
+
+sub add
+{
+  my $id = (my $self = shift)->next_id;
+  vec($$self[0], $id, 1) = 1;
+  weaken($$self[$id] = \shift);
+  $id;
+}
+
+sub remove
+{
+  my ($self, $id) = @_;
+  vec($$self[0], $id, 1) = 0;
+  delete $$self[$id];
+  $$self[$id];
+}
+
+sub next_id
+{
+  my $self = shift;
+  if ($$self[0] =~ /([^\xff])/g)
+  {
+    my $byte = pos $$self[0];
+    my $v    = ord $1;
+    my $bit  = 0;
+    ++$bit while $v & 1 << $bit;
+    $byte - 1 << 3 | $bit;
+  }
+  else
+  {
+    ++$#$self;
+  }
+}
 1;
