@@ -54,3 +54,13 @@ Let's state a few obvious things:
 5. Edges must link their endpoints bidirectionally since IO can come from either
    direction
 6. Connection ports may be bidirectional, although they tend not to be
+
+Perl gives us a lot of latitude in terms of memory management because we have
+precise destructors and weak references. We could, for example, maintain a
+global hashtable of all objects and use a packed addressing scheme. We can also
+have evented disconnect-on-destroy, and we can calculate reference strength
+based on graph topology if we want to.
+
+Having a lookup would allow objects to be addressible over RPC connections. I'm
+not sure I want to fully predicate the graph stuff on this, but it's
+independently useful enough that it may be justifiable.
