@@ -1,0 +1,71 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Scalar::Util qw/refaddr/;
+use Benchmark qw/timethese/;
+no warnings 'portable';
+
+my %objects_packed;
+my %objects_num;
+my @objects_array;
+
+my @objects = map +{ "\x00\x01" => 5, "\x00\x02" => 6 }, 0..16383;
+
+$objects_packed{pack N => refaddr $_} = $_ for @objects;
+$objects_num{refaddr $_}              = $_ for @objects;
+push @objects_array, @objects;
+
+my @refs_packed   = map pack(Na2 => refaddr($_), "\x00\x01"), @objects;
+my @refs_unpacked = map refaddr($_) << 16 & 0xffffffff0000 | 1, @objects;
+my @refs_num      = map refaddr($_) . ":\x00\x01", @objects;
+my @refs_array    = map $_ << 16 | 1, 0..$#objects_array;
+
+my $x1 = 0;
+my $x2 = 0;
+my $x3 = 0;
+my $x4 = 0;
+
+timethese 1000, {
+  packed => sub
+  {
+    my $x = 0;
+    for (@refs_packed)
+    {
+      $x += $objects_packed{unpack 'a4'}{unpack 'x4a2'};
+    }
+    $x1 += $x;
+  },
+
+  unpacked => sub
+  {
+    my $x = 0;
+    for (@refs_unpacked)
+    {
+      $x += $objects_packed{pack 'N', $_ >> 16}{pack n => $_ & 0xffff};
+    }
+    $x2 += $x;
+  },
+
+  array => sub
+  {
+    my $x = 0;
+    for (@refs_array)
+    {
+      $x += $objects_array[$_ >> 16]{pack n => $_ & 0xffff};
+    }
+    $x3 += $x;
+  },
+
+  num => sub
+  {
+    my $x = 0;
+    for (@refs_num)
+    {
+      my ($k1, $k2) = split /:/;
+      $x += $objects_num{$k1}{$k2};
+    }
+    $x4 += $x;
+  },
+};
+
+print "$x1, $x2, $x3, $x4\n";
