@@ -7,3 +7,5 @@ dev/markcheck
 rm -f pushback.pm
 dev/unlit --perl --text pushback.md > pushback.pm
 chmod 0444 pushback.pm
+
+dev/lazytest `find . -name '*.md'` | bash

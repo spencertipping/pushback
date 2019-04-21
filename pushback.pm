@@ -255,4 +255,58 @@ sub next_id
     ++$#$self;
   }
 }
+#line 25 "pushback/process.md"
+package pushback::process;
+no warnings 'portable';
+use constant HOST_MASK => 0xffff_f000_0000_0000;
+use constant PROC_MASK => 0x0000_0fff_ffff_0000;
+use constant PORT_MASK => 0x0000_0000_0000_ffff;
+
+sub new
+{
+  my ($class, $io) = @_;
+  bless { ports => [],
+          io    => $io }, $class;
+}
+
+sub io         { shift->{io} }
+sub ports      { shift->{ports} }
+sub object_for { ${shift->{io}}[shift >> 16 & PROC_MASK >> 16] }
+
+sub connect
+{
+  my ($self, $port, $destination) = @_;
+  return 0 if $$self{ports}[$port];
+  $$self{ports}[$port] = $destination;
+  $self->object_for($destination)
+       ->connect($self, $destination & PORT_MASK, $self->port_id($port));
+  $self;
+}
+
+sub disconnect
+{
+  my ($self, $port) = @_;
+  my $destination = $$self{ports}[$port];
+  return 0 unless $destination;
+  $$self{ports}[$port] = 0;
+  $self->object_for($destination)->disconnect($destination & PORT_MASK);
+  $self;
+}
+#line 7 "pushback/io.md"
+package pushback::io;
+use overload qw/ @{} processes /;
+sub new
+{
+  my ($class, $host_id) = @_;
+  bless { host_id       => $host_id // 0,
+          processes     => pushback::objectset->new,
+          owned_objects => {} }, $class;
+}
+
+sub processes { shift->{processes} }
+#line 58 "pushback.md"
+package pushback;
+use Exporter qw/import/;
+use constant io => pushback::io->new;
+our @EXPORT = our @EXPORT_OK = qw/io/;
 1;

@@ -45,14 +45,19 @@ use warnings;
 ```
 
 
-## Internals: design patterns
+## Internals
 - [JIT metaclass and compiler](pushback/jit.md)
 - [Flowable projection](pushback/flowable.md)
 - [Object address sets](pushback/objectset.md)
 - [Process metaclass](pushback/process.md)
+- [IO container](pushback/io.md)
 
 
 ## Footer
-```text
+```perl
+package pushback;
+use Exporter qw/import/;
+use constant io => pushback::io->new;
+our @EXPORT = our @EXPORT_OK = qw/io/;
 1;
 ```
