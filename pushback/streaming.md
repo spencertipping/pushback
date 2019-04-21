@@ -64,3 +64,29 @@ based on graph topology if we want to.
 Having a lookup would allow objects to be addressible over RPC connections. I'm
 not sure I want to fully predicate the graph stuff on this, but it's
 independently useful enough that it may be justifiable.
+
+
+### Object lifecycle and reference structure
+This is a lot more subtle than it sounds.
+
+We can start with a couple of basic lifecycle models. One is that streaming
+objects live until you call `->close` on one of their ports, at which point they
+self-destruct and `->close` the things they're connected to. This makes it easy
+to leak space without any way to reclaim it, which I don't like at all.
+
+The other model is to start with all objects being weakly referenced and have
+some anchored to IO containers or other endpoints that pin them. Anchored
+objects refer strongly to their derivatives (and this propagates transitively),
+but those derivatives refer weakly in reverse. We transitively weaken references
+when the underlying IO pin goes away. This is more or less an external GC
+strategy that makes graphs reclaimable when nobody refers to them anymore, even
+if they contain cycles.
+
+There are some strange middle-cases too. If we `->map(...)` a stream of things
+and then do nothing with it, should the mapped derivative persist? Arguably not
+because `map` is a cut-through element that won't consume any data or create any
+side effects until it has a destination. So maybe we use an insertion point
+structure where backlinks are strongly referenced and forward links are weak. If
+you then terminate with a side effect like `->each(sub)`, we go back and
+strengthen the forward pointers in the source graph leading to it. `each` is
+pinned by its input(s).
