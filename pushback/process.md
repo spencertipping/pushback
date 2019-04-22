@@ -30,21 +30,24 @@ use constant PORT_MASK => 0x0000_0000_0000_ffff;
 
 sub new
 {
-  my ($class, $io) = @_;
-  bless { ports => [],
-          io    => $io }, $class;
+  my ($class, $id, $io) = @_;
+  bless { ports      => [],
+          pins       => {},
+          process_id => $io->host_id << 44 | $id << 16,
+          io         => $io }, $class;
 }
 
-sub io         { shift->{io} }
-sub ports      { shift->{ports} }
-sub object_for { ${shift->{io}}[shift >> 16 & PROC_MASK >> 16] }
+sub io          { shift->{io} }
+sub ports       { shift->{ports} }
+sub process_for { ${shift->{io}}[(shift() & PROC_MASK) >> 16] }
+sub port_id     { shift->{process_id} | shift }
 
 sub connect
 {
   my ($self, $port, $destination) = @_;
   return 0 if $$self{ports}[$port];
   $$self{ports}[$port] = $destination;
-  $self->object_for($destination)
+  $self->process_for($destination)
        ->connect($self, $destination & PORT_MASK, $self->port_id($port));
   $self;
 }
@@ -55,7 +58,24 @@ sub disconnect
   my $destination = $$self{ports}[$port];
   return 0 unless $destination;
   $$self{ports}[$port] = 0;
-  $self->object_for($destination)->disconnect($destination & PORT_MASK);
+  $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
+}
+```
+
+
+## Admittance and flow
+Ports don't specify a flow direction; in theory they're fully bidirectional if
+the process doesn't limit them.
+
+```perl
+sub admittance
+{
+  # TODO
+}
+
+sub flow
+{
+  # TODO
 }
 ```

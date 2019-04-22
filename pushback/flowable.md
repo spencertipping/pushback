@@ -46,49 +46,44 @@ if (to_move)
 }
 ```
 
-Pushback works exactly the same way, except that it generalizes
-`buf`/`n`/`size_t` with flowables to accommodate Perl's sometimes-nonlinear data
-structures.
+Pushback works almost this way, but with two important differences:
+
+1. The same negotiation pathway handles both reads and writes. C would work this
+   way if `n` could take on negative values for reads.
+2. Pushback doesn't just negotiate byte arrays; it's generalized to negotiate
+   any type of operation on any type of value.
 
 
-## Flowable algebra and API
-We don't need to know very much about a dataflow to negotiate it. There are just
-a few logical operations involved:
+## Generalizing negotiation and flow
+At its core pushback is doing this:
 
-1. `$flowable->intersect($flowable)`: take the minimum admittance
-2. `$flowable->add($flowable)`: sum two admittances
-3. `if ($flowable > 0) { ... }`: condition on nonzero admittance
-4. `$flowable->zero`: set admittance to zero to disable dataflow
-
-Anything else, including figuring out the actual transfer it describes, is up to
-type-specific streams.
-
-
-## Byte array flowable
-...i.e. a Perl string.
-
-```perl
-pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
-  ->def(new =>
-    sub {
-      my $class = shift;
-      bless { data   => @_ ? \shift : \(my $buf = ""),
-              offset => 0,
-              n      => 0 }, $class;
-    })
-
-  ->defjit(intersect_ => ['$fn'], '$n = $fn if $fn < $n;')
-  ->defjit(add_       => ['$fn'], '$n += $fn;')
-  ->defjit(zero_      => [],      '$n = 0;')
-  ->defjit(if_start_  => [],      'if ($n) {')
-  ->defjit(if_end_    => [],      '}')
-
-  ->def(if => sub
-    {
-      my ($self, $jit, $fn) = @_;
-      $self->if_start_($jit);
-      &$fn($jit, $self);
-      $self->if_end_($jit);
-      $self;
-    });
+```pl
+my $requested = ...;
+my $admitted  = $process->admittance($port, $requested);
+if ($admitted->nonzero)
+{
+  my $committed = $process->flow($port, $admitted);
+  # $admitted == $committed unless something went wrong
+}
 ```
+
+There are some situations like unions and intersections that require more
+functionality from flowable values:
+
+```pl
+# intersected flow, e.g. for cut-through broadcasting
+my $requested = ...;
+my $admitted1 = $process1->admittance($port1, $requested);
+if ($admitted1->nonzero)
+{
+  my $admitted2 = $process2->admittance($port2, $requested);
+  if ($admitted2->nonzero)
+  {
+    my $admitted = $admitted1->intersect($admitted2);
+    $process1->flow($port1, $admitted);
+    $process2->flow($port2, $admitted);
+  }
+}
+```
+
+**TODO: more stuff**

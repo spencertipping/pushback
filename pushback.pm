@@ -193,30 +193,6 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
-#line 71 "pushback/flowable.md"
-pushback::jitclass->new('pushback::flowable::bytes', qw/ data offset n /)
-  ->def(new =>
-    sub {
-      my $class = shift;
-      bless { data   => @_ ? \shift : \(my $buf = ""),
-              offset => 0,
-              n      => 0 }, $class;
-    })
-
-  ->defjit(intersect_ => ['$fn'], '$n = $fn if $fn < $n;')
-  ->defjit(add_       => ['$fn'], '$n += $fn;')
-  ->defjit(zero_      => [],      '$n = 0;')
-  ->defjit(if_start_  => [],      'if ($n) {')
-  ->defjit(if_end_    => [],      '}')
-
-  ->def(if => sub
-    {
-      my ($self, $jit, $fn) = @_;
-      $self->if_start_($jit);
-      &$fn($jit, $self);
-      $self->if_end_($jit);
-      $self;
-    });
 #line 22 "pushback/objectset.md"
 package pushback::objectset;
 use Scalar::Util qw/weaken/;
@@ -264,21 +240,24 @@ use constant PORT_MASK => 0x0000_0000_0000_ffff;
 
 sub new
 {
-  my ($class, $io) = @_;
-  bless { ports => [],
-          io    => $io }, $class;
+  my ($class, $id, $io) = @_;
+  bless { ports      => [],
+          pins       => {},
+          process_id => $io->host_id << 44 | $id << 16,
+          io         => $io }, $class;
 }
 
-sub io         { shift->{io} }
-sub ports      { shift->{ports} }
-sub object_for { ${shift->{io}}[shift >> 16 & PROC_MASK >> 16] }
+sub io          { shift->{io} }
+sub ports       { shift->{ports} }
+sub process_for { ${shift->{io}}[(shift() & PROC_MASK) >> 16] }
+sub port_id     { shift->{process_id} | shift }
 
 sub connect
 {
   my ($self, $port, $destination) = @_;
   return 0 if $$self{ports}[$port];
   $$self{ports}[$port] = $destination;
-  $self->object_for($destination)
+  $self->process_for($destination)
        ->connect($self, $destination & PORT_MASK, $self->port_id($port));
   $self;
 }
@@ -289,8 +268,18 @@ sub disconnect
   my $destination = $$self{ports}[$port];
   return 0 unless $destination;
   $$self{ports}[$port] = 0;
-  $self->object_for($destination)->disconnect($destination & PORT_MASK);
+  $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
+}
+#line 72 "pushback/process.md"
+sub admittance
+{
+  # TODO
+}
+
+sub flow
+{
+  # TODO
 }
 #line 7 "pushback/io.md"
 package pushback::io;
