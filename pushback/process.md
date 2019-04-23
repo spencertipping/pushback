@@ -71,6 +71,57 @@ structure, which is appropriate because it's managing side effects that
 presumably live beyond our lexical scope.
 
 
+## Ports and flow paths
+Let's take a simple example like `cat`, which has two ports `in` and `out` and
+passes data from `in` to `out`. Any writes to `in` are passed through, as are
+any reads from `out` -- just like what you'd expect. Here's a picture:
+
+```
+       +---------------+
+       |  cat process  |
+       |               |
+...----|>in        out>|----...
+       +---------------+
+```
+
+If we wanted to describe the logic for handling a write to `in`, we might be
+tempted to write something like this:
+
+```pl
+$cat->defadmittance('>in' => '>out');   # NOPE; see below
+```
+
+...which is completely wrong, or at the very least is a lot more ambiguous than
+we want. The problem is that the above definition assumes two different frames
+of reference: `>in` presumably means "us writing into `cat`'s `in`", whereas
+`>out` is "`cat` writing into the destination of its `out`". Although uncommon
+in practice, there's no particular reason a process wouldn't forward input from
+a port to another port on itself: `>in1` -> `>in2` -- and in that case we
+obviously don't intend to write to whoever's connected to `in2`.
+
+We need a way to indicate the reference frame, port, and direction all in one
+string, which results in the following grammar:
+
+```pl
+'<out'          # we are reading from a process's "out" port
+'>in'           # we are writing to a process's "in" port
+'in<'           # we (the process) are reading from the other end of our "in"
+'out>'          # we (the process) are writing to the other end of our "out"
+```
+
+These strings all take the form _subject-verb-object_, but with only the
+process-side noun actually specified.
+
+That means the right way to describe `cat` flow is this:
+
+```pl
+$cat->defadmittance('>in' => 'out>');
+```
+
+The above can be read as "someone writing to `cat`'s `in` has the same
+admittance as `cat` writing to the endpoint of its `out`".
+
+
 ## Process base class
 ```perl
 package pushback::process;
@@ -125,18 +176,3 @@ sub disconnect
   $self;
 }
 ```
-
-
-## Writing a process
-Let's start with the simplest possible thing: a cut-through version of `cat`
-with two ports, `in` and `out`, and one flow path from `in` to `out`. Super,
-super simple.
-
-```pl
-my $cat = pushback::processclass->new('cat', 'in out');
-```
-
-Both flow and admittance into `in` and out of `out` are passed straight through
-to the opposite port. Admittance out of `in` and into `out` are both zero since
-that would be a backflow of data. We don't have to specify those flow
-directions; any path we don't explicitly handle will have zero admittance.
