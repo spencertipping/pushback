@@ -231,7 +231,7 @@ sub next_id
     ++$#$self;
   }
 }
-#line 59 "pushback/process.md"
+#line 75 "pushback/process.md"
 package pushback::process;
 no warnings 'portable';
 use constant HOST_MASK => 0xffff_f000_0000_0000;
@@ -240,19 +240,28 @@ use constant PORT_MASK => 0x0000_0000_0000_ffff;
 
 sub new
 {
-  my ($class, $id, $io) = @_;
-  bless { ports      => [],
-          pins       => {},
-          process_id => $io->host_id << 44 | $id << 16,
-          io         => $io }, $class;
+  my ($class, $io) = @_;
+  my $self = bless { ports      => [],
+                     pins       => {},
+                     process_id => 0,
+                     io         => $io }, $class;
+  $$self{process_id} = $io->add_process($self);
+  $self;
+}
+
+sub DESTROY
+{
+  my $self = shift;
+  $$self{io}->remove_process($$self{process_id});
+  die "TODO: disconnect ports";
 }
 
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
 sub process_id  { shift->{process_id} }
-sub port_id     { shift->{process_id} | shift }
-sub host_id     { shift->{process_id} >> 44 }
+sub host_id     { shift->{process_id} & HOST_MASK }
 
+sub port_id_for { shift->{process_id} | shift }
 sub process_for { shift->{io}->process_for(shift) }
 
 sub connect
@@ -261,7 +270,7 @@ sub connect
   return 0 if $$self{ports}[$port];
   $$self{ports}[$port] = $destination;
   $self->process_for($destination)
-       ->connect($self, $destination & PORT_MASK, $self->port_id($port));
+       ->connect($self, $destination & PORT_MASK, $self->port_id_for($port));
   $self;
 }
 
@@ -274,7 +283,7 @@ sub disconnect
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
 }
-#line 109 "pushback/process.md"
+#line 134 "pushback/process.md"
 sub admittance
 {
   # TODO
@@ -297,6 +306,20 @@ sub new
 
 sub processes { shift->{processes} }
 sub host_id   { shift->{host_id} }
+
+sub add_process
+{
+  my ($self, $proc) = @_;
+  $$self{host_id} << 44 | $$self{processes}->add($proc) << 16;
+}
+
+sub remove_process
+{
+  my ($self, $proc) = @_;
+  $proc = $proc->process_id if ref $proc;
+  $$self{processes}->remove(($proc & pushback::process::PROC_MASK) >> 16);
+  $self;
+}
 
 sub process_for
 {

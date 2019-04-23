@@ -17,6 +17,20 @@ sub new
 sub processes { shift->{processes} }
 sub host_id   { shift->{host_id} }
 
+sub add_process
+{
+  my ($self, $proc) = @_;
+  $$self{host_id} << 44 | $$self{processes}->add($proc) << 16;
+}
+
+sub remove_process
+{
+  my ($self, $proc) = @_;
+  $proc = $proc->process_id if ref $proc;
+  $$self{processes}->remove(($proc & pushback::process::PROC_MASK) >> 16);
+  $self;
+}
+
 sub process_for
 {
   my ($self, $pid) = @_;
