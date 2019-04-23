@@ -122,6 +122,11 @@ The above can be read as "someone writing to `cat`'s `in` has the same
 admittance as `cat` writing to the endpoint of its `out`".
 
 
+## Process metaclass
+`pushback::processclass` is a metaclass that extends `pushback::jitclass`,
+although process classes themselves don't extend any JIT parent.
+
+
 ## Process base class
 ```perl
 package pushback::process;

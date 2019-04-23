@@ -149,3 +149,8 @@ slack by using buffers:
 
 In this case the buffers just need one flow's worth of data; we don't need a
 queue with any depth to it.
+
+
+## Flowable metaclass?
+If it exists, it extends `pushback::jitclass`. But I'm not sure we need a
+metaclass for this.
