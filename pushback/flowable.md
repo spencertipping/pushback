@@ -33,16 +33,15 @@ size_t n  = 1048576;
 // let's get the actual amount of data we can move right now. This is the stream
 // admittance, which may be larger than n.
 size_t admitted = figure_out_how_much_we_can_move(s, buf, n);
-size_t to_move  = min(admitted, n);
 
 // Now move just that much if we still have any capacity to move things.
-if (to_move)
+if (admitted)
 {
-  size_t moved = write_to_somewhere(s, buf, to_move);
+  size_t moved = write_to_somewhere(s, buf, admitted);
 
   // We don't get short writes because everything was negotiated up front. Any
   // truncation indicates an IO or execution error.
-  if (moved != to_move) perror(...);
+  if (moved != admitted) perror(...);
 }
 ```
 
@@ -67,8 +66,8 @@ if ($admitted->nonzero)
 }
 ```
 
-There are some situations like unions and intersections that require more
-functionality from flowable values:
+This basic pattern can be modified a couple of ways to handle things like unions
+and intersections:
 
 ```pl
 # intersected flow, e.g. for cut-through broadcasting
@@ -76,14 +75,32 @@ my $requested = ...;
 my $admitted1 = $process1->admittance($port1, $requested);
 if ($admitted1->nonzero)
 {
-  my $admitted2 = $process2->admittance($port2, $requested);
+  my $admitted2 = $process2->admittance($port2, $admitted1);
   if ($admitted2->nonzero)
   {
-    my $admitted = $admitted1->intersect($admitted2);
-    $process1->flow($port1, $admitted);
-    $process2->flow($port2, $admitted);
+    $process1->flow($port1, $admitted2);
+    $process2->flow($port2, $admitted2);
   }
 }
 ```
 
-**TODO: more stuff**
+```pl
+# unioned flow, e.g. for cut-through input merging
+my $requested = ...;
+my $admitted1 = $process1->admittance($port1, $requested);
+if ($admitted1->nonzero)
+{
+  $process1->flow($admitted1);
+}
+else
+{
+  my $admitted2 = $process2->admittance($port2, $requested);
+  if ($admitted2->nonzero)
+  {
+    $process2->flow($admitted2);
+  }
+}
+```
+
+Pushback doesn't natively combine writes, although some types of process might.
+This simplifies the flow logic.
