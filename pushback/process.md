@@ -50,7 +50,10 @@ process.
 
 Also like file descriptors, processes refer to ports in two ways. Some ports
 have fixed roles, e.g. `stdin` and `stdout` for a simple process. Other ports
-are allocated in blocks, for instance `out[i]` for a broadcast process.
+are allocated on the fly, for instance `out[i]` for a broadcast process. A
+port-management API shouldn't assume a fixed number of ports, but rather should
+support assigning a routing role to each port it allocates.
+
 
 ```perl
 package pushback::process;
@@ -70,9 +73,11 @@ sub new
 
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
-sub process_for { ${shift->{io}}[(shift() & PROC_MASK) >> 16] }
 sub process_id  { shift->{process_id} }
 sub port_id     { shift->{process_id} | shift }
+sub host_id     { shift->{process_id} >> 44 }
+
+sub process_for { shift->{io}->process_for(shift) }
 
 sub connect
 {

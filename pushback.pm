@@ -231,7 +231,7 @@ sub next_id
     ++$#$self;
   }
 }
-#line 56 "pushback/process.md"
+#line 59 "pushback/process.md"
 package pushback::process;
 no warnings 'portable';
 use constant HOST_MASK => 0xffff_f000_0000_0000;
@@ -249,9 +249,11 @@ sub new
 
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
-sub process_for { ${shift->{io}}[(shift() & PROC_MASK) >> 16] }
 sub process_id  { shift->{process_id} }
 sub port_id     { shift->{process_id} | shift }
+sub host_id     { shift->{process_id} >> 44 }
+
+sub process_for { shift->{io}->process_for(shift) }
 
 sub connect
 {
@@ -272,7 +274,7 @@ sub disconnect
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
 }
-#line 104 "pushback/process.md"
+#line 109 "pushback/process.md"
 sub admittance
 {
   # TODO
@@ -295,6 +297,16 @@ sub new
 
 sub processes { shift->{processes} }
 sub host_id   { shift->{host_id} }
+
+sub process_for
+{
+  my ($self, $pid) = @_;
+  $pid >> 44 == $$self{host_id}
+    ? $$self{processes}[($pid & pushback::process::PROC_MASK) >> 16]
+    : $self->rpc_for($pid);
+}
+
+sub rpc_for { ... }
 #line 58 "pushback.md"
 package pushback;
 use Exporter qw/import/;

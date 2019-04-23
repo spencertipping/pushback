@@ -16,4 +16,14 @@ sub new
 
 sub processes { shift->{processes} }
 sub host_id   { shift->{host_id} }
+
+sub process_for
+{
+  my ($self, $pid) = @_;
+  $pid >> 44 == $$self{host_id}
+    ? $$self{processes}[($pid & pushback::process::PROC_MASK) >> 16]
+    : $self->rpc_for($pid);
+}
+
+sub rpc_for { ... }
 ```
