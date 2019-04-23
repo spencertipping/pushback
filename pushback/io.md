@@ -15,4 +15,5 @@ sub new
 }
 
 sub processes { shift->{processes} }
+sub host_id   { shift->{host_id} }
 ```

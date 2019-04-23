@@ -9,6 +9,12 @@ describes their location in a distributed context:
 <host_id : 20> <object_id : 28> <port_id : 16>
 ```
 
+Processes jointly JIT their admittance and flow logic, which means
+process/process interaction is for the most part inlined. It's much more
+expensive to change port connections than it is to move lots of data within a
+fixed topology. (You can mitigate the impact of changes by breaking the inlining
+chains, which will cause shorter sections of JIT to be invalidated.)
+
 
 ## Connecting to ports
 A connection has exactly two endpoints and monopolizes each port it's connected
@@ -16,10 +22,35 @@ to. Connections are encoded as numbers assigned to port vectors within
 processes:
 
 ```
-# connect (object 4: port 43) to (object 91: port 7)
+# connect (process 4: port 43) to (process 91: port 7)
 $$object4{ports}[43] = $localhost << 44 | 91 << 16 | 7;
 $$object91{ports}[7] = $localhost << 44 | 4  << 16 | 43;
 ```
+
+Process IDs are always nonzero, so connected ports will have truthy values. `0`
+represents a disconnected port.
+
+
+## Topology changes and JIT
+**If you change a port connection inside flow code, that change won't be
+reflected until the next flow operation.** Specifically, the contract is that
+you have to _enter_ a JIT context to deoptimize an inlined topology. We don't
+have a zero-latency retry mechanism, in part because re-entry violates the
+transactional nature of negotiated IO.
+
+For the most part this shouldn't cause problems; it's uncommon to change the
+topology of a connection while that connection is moving data.
+
+
+## Processes and port allocation
+As far as pushback is concerned, ports are just numbers and they're all the
+same. Ports can have bidirectional admittance and flow, although most of the
+time processes don't use them this way. Just like file descriptors for a Linux
+process.
+
+Also like file descriptors, processes refer to ports in two ways. Some ports
+have fixed roles, e.g. `stdin` and `stdout` for a simple process. Other ports
+are allocated in blocks, for instance `out[i]` for a broadcast process.
 
 ```perl
 package pushback::process;
@@ -40,6 +71,7 @@ sub new
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
 sub process_for { ${shift->{io}}[(shift() & PROC_MASK) >> 16] }
+sub process_id  { shift->{process_id} }
 sub port_id     { shift->{process_id} | shift }
 
 sub connect
