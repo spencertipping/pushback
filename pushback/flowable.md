@@ -104,3 +104,48 @@ else
 
 Pushback doesn't natively combine writes, although some types of process might.
 This simplifies the flow logic.
+
+
+## Problems with negotiation
+Negotiation isn't perfect. It's fairly straightforward to construct a situation
+that will cause negotiation to mispredict flow; for example:
+
+```
+                +-----------+     +-------+
+                | broadcast |     | union |
++---------+     |          >|-----|>      |     +--------------+
+| source >|-----|>          |     |      >|-----|> destination |
++---------+     |          >|-----|>      |     +--------------+
+                +-----------+     +-------+
+```
+
+It's easy to see why if we work out how the admittances are calculated:
+
+```
+source admittance = broadcast input admittance
+  = (broadcast out1 admittance) intersect (broadcast out2 admittance)
+  = (union in1 admittance)      intersect (union in2 admittance)
+  = (destination in admittance) intersect (destination in admittance)
+  = destination in admittance
+```
+
+...but this will overcommit `union` because `destination` will accept only the
+first of the two broadcasted writes. The second is likely to fail entirely,
+leaving `union`, and in turn `broadcast`, with uncommitted data.
+
+It isn't at all impossible to construct pipelines like the one above, but
+anytime you have these joint-admittance problems you'll need to provide some
+slack by using buffers:
+
+```
+             +-----------+                +-------+
+             | broadcast |  +----------+  | union |
++---------+  |          >|--|> buffer >|--|>      |  +--------------+
+| source >|--|>          |  +----------+  |      >|--|> destination |
++---------+  |           |  +----------+  |       |  +--------------+
+             |          >|--|> buffer >|--|>      |
+             +-----------+  +----------+  +-------+
+```
+
+In this case the buffers just need one flow's worth of data; we don't need a
+queue with any depth to it.
