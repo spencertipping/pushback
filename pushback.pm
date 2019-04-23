@@ -285,16 +285,6 @@ sub disconnect
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
 }
-#line 160 "pushback/process.md"
-sub admittance
-{
-  # TODO
-}
-
-sub flow
-{
-  # TODO
-}
 #line 7 "pushback/io.md"
 package pushback::io;
 use overload qw/ @{} processes /;

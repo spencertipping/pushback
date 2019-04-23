@@ -132,38 +132,11 @@ Let's start with the simplest possible thing: a cut-through version of `cat`
 with two ports, `in` and `out`, and one flow path from `in` to `out`. Super,
 super simple.
 
-Both flow and admittance are going to be straight passthroughs. So we have
-something like this:
-
 ```pl
-pushback::processclass->new('cat', 'in out')
-  ->defadmittance('>stdin', sub {
-    # passthrough to stdout
-  })
-  ->defflow('>stdin', sub {
-    # ditto
-  });
+my $cat = pushback::processclass->new('cat', 'in out');
 ```
 
-This raises a question: when we describe flow as `>stdin` -- i.e. "into `stdin`"
--- the point of view is clearly from outside the process. This is what we'd
-expect since we're defining its interface with the outside world.
-
-But how do we refer to "the thing connected to `stdout`"? It's ambiguous to say
-something like `$self->admittance_for('>stdout')`: we might mean "the admittance
-we perceive against our outbound `stdout` connection" or we could be describing
-"the admittance someone else would perceive if they were sending data to our
-`stdout` port."
-
-
-```perl
-sub admittance
-{
-  # TODO
-}
-
-sub flow
-{
-  # TODO
-}
-```
+Both flow and admittance into `in` and out of `out` are passed straight through
+to the opposite port. Admittance out of `in` and into `out` are both zero since
+that would be a backflow of data. We don't have to specify those flow
+directions; any path we don't explicitly handle will have zero admittance.
