@@ -59,7 +59,7 @@ persist beyond you holding onto it:
 3. It's a dependency of a process that's pinned by rules (1) or (2).
 
 ...so what's a dependency given that flow direction is ambiguous? The short
-answer is that inputs are dependencies. If I say something like
+answer is that input-like things are dependencies. If I say something like
 `$stdin->map(...)->grep(...)`, `grep` depends on `map`, which depends on
 `$stdin`. `grep` (and by extension, `map`) will go away if I drop my reference
 to it.
@@ -71,6 +71,7 @@ structure, which is appropriate because it's managing side effects that
 presumably live beyond our lexical scope.
 
 
+## Process base class
 ```perl
 package pushback::process;
 no warnings 'portable';
@@ -126,9 +127,34 @@ sub disconnect
 ```
 
 
-## Admittance and flow
-Ports don't specify a flow direction; in theory they're fully bidirectional if
-the process doesn't limit them.
+## Writing a process
+Let's start with the simplest possible thing: a cut-through version of `cat`
+with two ports, `in` and `out`, and one flow path from `in` to `out`. Super,
+super simple.
+
+Both flow and admittance are going to be straight passthroughs. So we have
+something like this:
+
+```pl
+pushback::processclass->new('cat', 'in out')
+  ->defadmittance('>stdin', sub {
+    # passthrough to stdout
+  })
+  ->defflow('>stdin', sub {
+    # ditto
+  });
+```
+
+This raises a question: when we describe flow as `>stdin` -- i.e. "into `stdin`"
+-- the point of view is clearly from outside the process. This is what we'd
+expect since we're defining its interface with the outside world.
+
+But how do we refer to "the thing connected to `stdout`"? It's ambiguous to say
+something like `$self->admittance_for('>stdout')`: we might mean "the admittance
+we perceive against our outbound `stdout` connection" or we could be describing
+"the admittance someone else would perceive if they were sending data to our
+`stdout` port."
+
 
 ```perl
 sub admittance

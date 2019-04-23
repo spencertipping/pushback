@@ -163,8 +163,8 @@ function. Our resulting function takes `$self`, `\@arg_refs`, `\%refs`,
 `\%ref_gensyms`, and returns a new code snippet that includes the gensyms it
 bound.
 
-...and because performance is something we care about, we JIT this function. Our
-JIT compiler is JIT compiled.
+...and because performance is something we care about (including for JIT
+compilation itself), we JIT this function. Our JIT compiler is JIT compiled.
 
 ```perl
 sub jit_op_arg
@@ -193,6 +193,8 @@ sub jit_op_ivar
 sub defjit
 {
   my ($self, $name, $args, $code) = @_;
+  $args = [map split(/\s+/), ref $args ? @$args : $args];
+
   my $all_vars  = join"|", @{$$self{ivars}}, map +("\\^$_", $_), @$args;
   my $var_regex = qr/\$($all_vars)\b/;
   my %args      = map +(  $$args[$_]  => $_,
@@ -253,7 +255,7 @@ sub new
 {
   my $class = shift;
   bless { fragments    => [],
-          invalidation => \shift,
+          invalidation => \(shift // my $iflag),
           gensym_id    => \(my $gensym = 0),
           refs         => {},
           ref_gensyms  => {} }, $class;
@@ -284,22 +286,26 @@ sub compile
 }
 ```
 
-Here's what we have so far:
 
+## An impenetrable excuse for an example
 ```bash
 $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
+
     pushback::jitclass->new("foo", qw/ x y /)
       ->def(normal => sub { shift->{x} })
-      ->defjit(inc_x => ["by"], q{ $x += $by; });
+      ->defjit(inc_x => "by", q{ $x += $by; });
+
     my $foo_inst = bless { x => 0, y => 0 }, "foo";
     print "initial x: " . $foo_inst->normal . "\n";
+
     my $jit = pushback::jitcompiler->new;
     $foo_inst->inc_x($jit, 1);
     $foo_inst->inc_x($jit, 2);
     $jit->compile;
-    print "post-jit x: " . $foo_inst->normal . "\n"'
+    print "post-jit x: " . $foo_inst->normal . "\n";
+  '
 initial x: 0
 post-jit x: 3
 ```

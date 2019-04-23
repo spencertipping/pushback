@@ -110,6 +110,8 @@ sub jit_op_ivar
 sub defjit
 {
   my ($self, $name, $args, $code) = @_;
+  $args = [map split(/\s+/), ref $args ? @$args : $args];
+
   my $all_vars  = join"|", @{$$self{ivars}}, map +("\\^$_", $_), @$args;
   my $var_regex = qr/\$($all_vars)\b/;
   my %args      = map +(  $$args[$_]  => $_,
@@ -158,13 +160,13 @@ sub defjit
 
   $self;
 }
-#line 251 "pushback/jit.md"
+#line 253 "pushback/jit.md"
 package pushback::jitcompiler;
 sub new
 {
   my $class = shift;
   bless { fragments    => [],
-          invalidation => \shift,
+          invalidation => \(shift // my $iflag),
           gensym_id    => \(my $gensym = 0),
           refs         => {},
           ref_gensyms  => {} }, $class;
@@ -231,7 +233,7 @@ sub next_id
     ++$#$self;
   }
 }
-#line 75 "pushback/process.md"
+#line 76 "pushback/process.md"
 package pushback::process;
 no warnings 'portable';
 use constant HOST_MASK => 0xffff_f000_0000_0000;
@@ -283,7 +285,7 @@ sub disconnect
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
 }
-#line 134 "pushback/process.md"
+#line 160 "pushback/process.md"
 sub admittance
 {
   # TODO
