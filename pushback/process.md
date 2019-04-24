@@ -126,6 +126,74 @@ admittance as `cat` writing to the endpoint of its `out`".
 `pushback::processclass` is a metaclass that extends `pushback::jitclass`,
 although process classes themselves don't extend any JIT parent.
 
+```perl
+package pushback::processclass;
+push our @ISA, 'pushback::jitclass';
+sub new
+{
+  my ($class, $name, $vars, $ports) = @_;
+  my $self = pushback::jitclass::new $class,
+               $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
+  $$self{ports} = [split/\s+/, $ports // ""];
+  $self;
+}
+```
+
+
+### Defining ports
+```pl
+sub defport;            # ($name, $name, ...) -> $class
+sub defportrange;       # ($name => $size) -> $class
+sub defadmittance;      # ($name => $adm) -> $class
+sub defflow;            # ($name => $flow) -> $class
+```
+
+Port definitions happen in three parts. First, you use `defport` or
+`defportrange` to specify that a port exists. This creates named aliases and
+makes it possible for other processes to `->connect` to this one using that
+port. I'll talk more about ranges below; for now let's discuss single ports.
+
+The second step is to define the admittance of flow through the new port using
+`defadmittance`. You can do this in three ways:
+
+1. Refer to another port, e.g. `defadmittance('>in' => 'out>')`
+2. Refer to an expression, e.g. `defadmittance('>in' => q{ $cap - @$buf })`
+3. Define a JIT handler, discussed below
+
+Lastly you need to define flow behavior for the port using `defflow`, which
+provides options (1) and (3) from the list above. (Referring to an expression
+wouldn't make sense because flow is a side effect.)
+
+
+### JIT handlers
+JIT handlers let you define nontrivial logic to be run prior to JIT
+specialization. For example, to define a process whose inflow is the lesser of
+two output flows:
+
+```pl
+defadmittance('>in', sub
+{
+  my ($self, $jit, $flowable) = @_;
+  my $out1 = $flowable->copy;
+  my $out2 = $flowable->copy;
+  $self->admittance('out1>', $jit, $out1);
+  $self->admittance('out2>', $jit, $out2);
+  $out1->intersect($jit, $out2);
+  $flowable->assign($out1);
+});
+```
+
+**TODO:** more detail about the strategy above, in particular `->copy` and value
+manipulation.
+
+
+### Port ranges
+You can define a range of ports that share admittance and flow characteristics.
+For example, a broadcast process would probably have a range of output ports,
+allowing users to connect or disconnect an unspecified number of processes.
+
+**TODO:** more detail
+
 
 ## Process base class
 ```perl

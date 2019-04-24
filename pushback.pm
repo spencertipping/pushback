@@ -27,15 +27,15 @@ use strict;
 use warnings;
 #line 59 "pushback/jit.md"
 package pushback::jitclass;
-use Scalar::Util qw/refaddr/;
+use Scalar::Util;
 sub new
 {
-  my ($class, $package, @ivars) = @_;
+  my ($class, $package, $ivars) = @_;
   my $self = bless { package => $package,
-                     ivars   => \@ivars }, $class;
+                     ivars   => [split/\s+/, $ivars] }, $class;
   $self->bind_invalidation_methods;
 }
-#line 79 "pushback/jit.md"
+#line 80 "pushback/jit.md"
 sub isa
 {
   no strict 'refs';
@@ -43,7 +43,14 @@ sub isa
   push @{"$$class{package}\::ISA"}, @_;
   $class;
 }
-#line 100 "pushback/jit.md"
+
+sub defvar
+{
+  my $class = shift;
+  push @{$$class{ivars}}, map split(/\s+/), @_;
+  $class;
+}
+#line 108 "pushback/jit.md"
 sub bind_invalidation_methods
 {
   no strict 'refs';
@@ -71,7 +78,7 @@ sub bind_invalidation_methods
 
   $class;
 }
-#line 136 "pushback/jit.md"
+#line 144 "pushback/jit.md"
 sub def
 {
   no strict 'refs';
@@ -83,7 +90,7 @@ sub def
   }
   $class;
 }
-#line 170 "pushback/jit.md"
+#line 178 "pushback/jit.md"
 sub jit_op_arg
 {
   my ($arg, $index) = @_;
@@ -160,7 +167,7 @@ sub defjit
 
   $self;
 }
-#line 253 "pushback/jit.md"
+#line 261 "pushback/jit.md"
 package pushback::jitcompiler;
 sub new
 {
@@ -233,7 +240,18 @@ sub next_id
     ++$#$self;
   }
 }
-#line 132 "pushback/process.md"
+#line 130 "pushback/process.md"
+package pushback::processclass;
+push our @ISA, 'pushback::jitclass';
+sub new
+{
+  my ($class, $name, $vars, $ports) = @_;
+  my $self = pushback::jitclass::new $class,
+               $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
+  $$self{ports} = [split/\s+/, $ports // ""];
+  $self;
+}
+#line 200 "pushback/process.md"
 package pushback::process;
 no warnings 'portable';
 use constant HOST_MASK => 0xffff_f000_0000_0000;

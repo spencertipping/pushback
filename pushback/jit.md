@@ -57,12 +57,12 @@ drop new variables into position without reparsing everything.
 
 ```perl
 package pushback::jitclass;
-use Scalar::Util qw/refaddr/;
+use Scalar::Util;
 sub new
 {
-  my ($class, $package, @ivars) = @_;
+  my ($class, $package, $ivars) = @_;
   my $self = bless { package => $package,
-                     ivars   => \@ivars }, $class;
+                     ivars   => [split/\s+/, $ivars] }, $class;
   $self->bind_invalidation_methods;
 }
 ```
@@ -72,6 +72,7 @@ sub new
 ```pl
 sub isa;                      # (@base_classes...) -> $class
 sub def;                      # ($name => sub {...}) -> $class
+sub defvar;                   # (@vars...) -> $class
 sub defjit;                   # ($name => [@args], q{...}) -> $class
 ```
 
@@ -81,6 +82,13 @@ sub isa
   no strict 'refs';
   my $class = shift;
   push @{"$$class{package}\::ISA"}, @_;
+  $class;
+}
+
+sub defvar
+{
+  my $class = shift;
+  push @{$$class{ivars}}, map split(/\s+/), @_;
   $class;
 }
 ```
@@ -293,7 +301,7 @@ $ perl -I. -Mpushback -e '
     use strict;
     use warnings;
 
-    pushback::jitclass->new("foo", qw/ x y /)
+    pushback::jitclass->new("foo", "x y")
       ->def(normal => sub { shift->{x} })
       ->defjit(inc_x => "by", q{ $x += $by; });
 
