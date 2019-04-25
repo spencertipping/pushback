@@ -159,6 +159,9 @@ sub defjit
     {
       my $self = shift;
       my $jit  = shift;
+      die "$$self{package}\::$name: expected @$args but got " . scalar(@_)
+        . " argument(s)" unless @_ == @$args;
+
       $self->add_invalidation_flag($name, $jit->invalidation_flag);
       $jit->code(&$method($self, \@_,
                           $jit->refs, $jit->gensym_id, $jit->ref_gensyms));
@@ -167,7 +170,7 @@ sub defjit
 
   $self;
 }
-#line 261 "pushback/jit.md"
+#line 264 "pushback/jit.md"
 package pushback::jitcompiler;
 sub new
 {
@@ -202,6 +205,76 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
+#line 181 "pushback/flowable.md"
+pushback::jitclass->new('pushback::flowable::string', 'str n offset')
+  ->def(new => sub
+    {
+      my $class   =  shift;
+      my $str_ref = \shift;
+      my $n       =  shift // 0;
+      my $offset  =  shift // 0;
+      bless { str_ref => $str_ref,
+              n       => $n,
+              offset  => $offset }, $class;
+    })
+
+  ->def(str_ref => sub { shift->{str_ref} })
+  ->def(n       => sub { shift->{n} })
+  ->def(offset  => sub { shift->{offset} })
+
+  ->defjit(assign_from_ => 'str_ref_ n_ offset_',
+    q{ $str_ref = $str_ref_;
+       $n       = $n_;
+       $offset  = $offset_; })
+
+  ->defjit(if_nonzero_  => '', q[ if ($n) { ])
+  ->defjit(if_positive_ => '', q[ if ($n > 0) { ])
+  ->defjit(if_negative_ => '', q[ if ($n < 0) { ])
+  ->defjit(end_         => '', q[ } ])
+
+  # TODO: update to handle offsets correctly
+  ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
+
+  ->defjit(set_to_zero => '', q{ $n = 0; })
+
+  ->def(copy => sub
+    {
+      my $self = shift;
+      my $jit  = shift;
+      my $into = shift // ref($self)->new;
+      $into->assign_from_($jit, $$self{str_ref}, $$self{n}, $$self{offset});
+      $into;
+    })
+
+  ->def(if_nonzero => sub
+    {
+      my ($self, $jit, $f) = @_;
+      $self->if_nonzero_($jit);
+      &$f();
+      $self->end_($jit);
+    })
+
+  ->def(if_positive => sub
+    {
+      my ($self, $jit, $f) = @_;
+      $self->if_positive_($jit);
+      &$f();
+      $self->end_($jit);
+    })
+
+  ->def(is_negative => sub
+    {
+      my ($self, $jit, $f) = @_;
+      $self->if_negative_($jit);
+      &$f();
+      $self->end_($jit);
+    })
+
+  ->def(intersect => sub
+    {
+      my ($self, $jit, $rhs) = @_;
+      $self->intersect_($jit, $$rhs{n});
+    });
 #line 22 "pushback/objectset.md"
 package pushback::objectset;
 use Scalar::Util qw/weaken/;
@@ -248,10 +321,29 @@ sub new
   my ($class, $name, $vars, $ports) = @_;
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
-  $$self{ports} = [split/\s+/, $ports // ""];
+
+  $$self{port_index}  = 0;      # next free port number
+  $$self{ports}       = {};     # name -> port number
+  $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 200 "pushback/process.md"
+#line 171 "pushback/process.md"
+sub defport
+{
+  my ($self, $port) = @_;
+  my $index = $$self{port_index}++;
+  $$self{ports}{$port} = $index;
+  $self->def("connect_$port"    => sub { shift->connect($index, @_) })
+       ->def("disconnect_$port" => sub { shift->disconnect($index) })
+       ->def($port              => sub { shift->port_id_for($index) });
+  $self;
+}
+
+sub defadmittance
+{
+  my ($self, $a) = @_;
+}
+#line 217 "pushback/process.md"
 package pushback::process;
 no warnings 'portable';
 use constant HOST_MASK => 0xffff_f000_0000_0000;

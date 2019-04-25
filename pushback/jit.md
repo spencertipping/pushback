@@ -243,6 +243,9 @@ sub defjit
     {
       my $self = shift;
       my $jit  = shift;
+      die "$$self{package}\::$name: expected @$args but got " . scalar(@_)
+        . " argument(s)" unless @_ == @$args;
+
       $self->add_invalidation_flag($name, $jit->invalidation_flag);
       $jit->code(&$method($self, \@_,
                           $jit->refs, $jit->gensym_id, $jit->ref_gensyms));

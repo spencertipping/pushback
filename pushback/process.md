@@ -134,7 +134,10 @@ sub new
   my ($class, $name, $vars, $ports) = @_;
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
-  $$self{ports} = [split/\s+/, $ports // ""];
+
+  $$self{port_index}  = 0;      # next free port number
+  $$self{ports}       = {};     # name -> port number
+  $self->defport($_) for split/\s+/, $ports;
   $self;
 }
 ```
@@ -164,6 +167,24 @@ Lastly you need to define flow behavior for the port using `defflow`, which
 provides options (1) and (3) from the list above. (Referring to an expression
 wouldn't make sense because flow is a side effect.)
 
+```perl
+sub defport
+{
+  my ($self, $port) = @_;
+  my $index = $$self{port_index}++;
+  $$self{ports}{$port} = $index;
+  $self->def("connect_$port"    => sub { shift->connect($index, @_) })
+       ->def("disconnect_$port" => sub { shift->disconnect($index) })
+       ->def($port              => sub { shift->port_id_for($index) });
+  $self;
+}
+
+sub defadmittance
+{
+  my ($self, $a) = @_;
+}
+```
+
 
 ### JIT handlers
 JIT handlers let you define nontrivial logic to be run prior to JIT
@@ -174,17 +195,13 @@ two output flows:
 defadmittance('>in', sub
 {
   my ($self, $jit, $flowable) = @_;
-  my $out1 = $flowable->copy;
-  my $out2 = $flowable->copy;
-  $self->admittance('out1>', $jit, $out1);
-  $self->admittance('out2>', $jit, $out2);
-  $out1->intersect($jit, $out2);
-  $flowable->assign($out1);
+  $self->admittance('out1>', $jit, my $out1 = $flowable->copy($jit));
+  $self->admittance('out2>', $jit, my $out2 = $flowable->copy($jit));
+  $out1->intersect($jit, $out2)
+       ->intersect($jit, $flowable)
+       ->copy($jit, $flowable);
 });
 ```
-
-**TODO:** more detail about the strategy above, in particular `->copy` and value
-manipulation.
 
 
 ### Port ranges

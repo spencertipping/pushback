@@ -1,4 +1,9 @@
 # Flowable projection
+A flowable represents a data transfer that might at some point happen but that
+hasn't been committed to yet. Pushback uses these during flow negotiation.
+
+
+## Background
 If you're doing IO on byte arrays, you'll usually have signatures like this:
 
 ```c
@@ -18,7 +23,7 @@ that complicates our life a bit if we want to use a standard interface to deal
 with data flow.
 
 
-## Negotiation and admittance
+### Negotiation and admittance
 All streams in pushback are negotiated, which means moving data through them is
 a two-step process. I'll outline the equivalent process in C-style IO before
 talking about how pushback negotiation works:
@@ -53,7 +58,7 @@ Pushback works almost this way, but with two important differences:
    any type of operation on any type of value.
 
 
-## Generalizing negotiation and flow
+### Generalizing negotiation and flow
 At its core pushback is doing this:
 
 ```pl
@@ -106,7 +111,7 @@ Pushback doesn't natively combine writes, although some types of process might.
 This simplifies the flow logic.
 
 
-## Problems with negotiation
+### Problems with negotiation
 Negotiation isn't perfect. It's fairly straightforward to construct a situation
 that will cause negotiation to mispredict flow; for example:
 
@@ -151,6 +156,95 @@ In this case the buffers just need one flow's worth of data; we don't need a
 queue with any depth to it.
 
 
-## Flowable metaclass?
-If it exists, it extends `pushback::jitclass`. But I'm not sure we need a
-metaclass for this.
+## Flowable API
+Flowable state is almost entirely updated within a JIT context during
+negotiation.
+
+```pl
+$flowable->copy($jit, $into // ());
+$flowable->set_to_zero($jit);
+$flowable->if_nonzero($jit, sub {...});
+$flowable->if_positive($jit, sub {...});
+$flowable->if_negative($jit, sub {...});
+
+# many flowables also support math:
+$flowable->intersect($jit, $other);
+$flowable->union($jit, $other);
+$flowable->add($jit, $other);
+```
+
+
+## String flowable
+Used for file IO, for example.
+
+```perl
+pushback::jitclass->new('pushback::flowable::string', 'str n offset')
+  ->def(new => sub
+    {
+      my $class   =  shift;
+      my $str_ref = \shift;
+      my $n       =  shift // 0;
+      my $offset  =  shift // 0;
+      bless { str_ref => $str_ref,
+              n       => $n,
+              offset  => $offset }, $class;
+    })
+
+  ->def(str_ref => sub { shift->{str_ref} })
+  ->def(n       => sub { shift->{n} })
+  ->def(offset  => sub { shift->{offset} })
+
+  ->defjit(assign_from_ => 'str_ref_ n_ offset_',
+    q{ $str_ref = $str_ref_;
+       $n       = $n_;
+       $offset  = $offset_; })
+
+  ->defjit(if_nonzero_  => '', q[ if ($n) { ])
+  ->defjit(if_positive_ => '', q[ if ($n > 0) { ])
+  ->defjit(if_negative_ => '', q[ if ($n < 0) { ])
+  ->defjit(end_         => '', q[ } ])
+
+  # TODO: update to handle offsets correctly
+  ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
+
+  ->defjit(set_to_zero => '', q{ $n = 0; })
+
+  ->def(copy => sub
+    {
+      my $self = shift;
+      my $jit  = shift;
+      my $into = shift // ref($self)->new;
+      $into->assign_from_($jit, $$self{str_ref}, $$self{n}, $$self{offset});
+      $into;
+    })
+
+  ->def(if_nonzero => sub
+    {
+      my ($self, $jit, $f) = @_;
+      $self->if_nonzero_($jit);
+      &$f();
+      $self->end_($jit);
+    })
+
+  ->def(if_positive => sub
+    {
+      my ($self, $jit, $f) = @_;
+      $self->if_positive_($jit);
+      &$f();
+      $self->end_($jit);
+    })
+
+  ->def(is_negative => sub
+    {
+      my ($self, $jit, $f) = @_;
+      $self->if_negative_($jit);
+      &$f();
+      $self->end_($jit);
+    })
+
+  ->def(intersect => sub
+    {
+      my ($self, $jit, $rhs) = @_;
+      $self->intersect_($jit, $$rhs{n});
+    });
+```
