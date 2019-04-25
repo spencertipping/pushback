@@ -210,8 +210,8 @@ Here's the API:
 ```pl
 sub parse_portspec;             # ($port) -> ($process, $direction, $portname)
 sub port_name;                  # ($port_id) -> $port_name | undef
-sub admittance;                 # ($port, $jit, $flowable) -> $jit
-sub flow;                       # ($port, $jit, $flowable) -> $jit
+sub jit_admittance;             # ($port, $jit, $flowable) -> $jit
+sub jit_flow;                   # ($port, $jit, $flowable) -> $jit
 ```
 
 ```perl
@@ -221,12 +221,12 @@ sub zero_flow
   $flowable->set_to($jit, 0);
 }
 
-sub admittance
+sub jit_admittance
 {
   no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->admittance("$direction$portname", $jit, $flowable)
+  return $proc->jit_admittance("$direction$portname", $jit, $flowable)
     unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
 
   my $admittance = \%{ref($self) . "::admittance"};
@@ -234,12 +234,12 @@ sub admittance
                               // \&zero_flow)->($self, $jit, $flowable);
 }
 
-sub flow
+sub jit_flow
 {
   no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->flow("$direction$portname", $jit, $flowable)
+  return $proc->jit_flow("$direction$portname", $jit, $flowable)
     unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
 
   my $flow = \%{ref($self) . "::flow"};
@@ -306,6 +306,7 @@ sub new
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
   {
     no strict 'refs';
+    no warnings 'once';
     $$self{ports}      = \%{"$$self{package}\::ports"};
     $$self{admittance} = \%{"$$self{package}\::admittance"};
     $$self{flow}       = \%{"$$self{package}\::flow"};

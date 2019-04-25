@@ -53,6 +53,10 @@ use warnings;
 - [IO container](pushback/io.md)
 
 
+## Standard library
+- [Standard processes](pushback/stdproc.md)
+
+
 ## Footer
 ```perl
 package pushback;

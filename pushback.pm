@@ -432,12 +432,12 @@ sub zero_flow
   $flowable->set_to($jit, 0);
 }
 
-sub admittance
+sub jit_admittance
 {
   no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->admittance("$direction$portname", $jit, $flowable)
+  return $proc->jit_admittance("$direction$portname", $jit, $flowable)
     unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
 
   my $admittance = \%{ref($self) . "::admittance"};
@@ -445,12 +445,12 @@ sub admittance
                               // \&zero_flow)->($self, $jit, $flowable);
 }
 
-sub flow
+sub jit_flow
 {
   no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->flow("$direction$portname", $jit, $flowable)
+  return $proc->jit_flow("$direction$portname", $jit, $flowable)
     unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
 
   my $flow = \%{ref($self) . "::flow"};
@@ -505,6 +505,7 @@ sub new
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
   {
     no strict 'refs';
+    no warnings 'once';
     $$self{ports}      = \%{"$$self{package}\::ports"};
     $$self{admittance} = \%{"$$self{package}\::admittance"};
     $$self{flow}       = \%{"$$self{package}\::flow"};
@@ -514,7 +515,7 @@ sub new
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 346 "pushback/process.md"
+#line 347 "pushback/process.md"
 sub defport
 {
   my $self = shift;
@@ -639,7 +640,22 @@ sub process_for
 }
 
 sub rpc_for { ... }
-#line 58 "pushback.md"
+#line 7 "pushback/stdproc.md"
+pushback::processclass->new(cat => '', 'in out')
+  ->defadmittance('>in' => 'out>')
+  ->defadmittance('<out' => 'in<')
+  ->defflow('>in' => 'out>')
+  ->defflow('<out' => 'in<');
+#line 17 "pushback/stdproc.md"
+pushback::processclass->new(each => 'fn', 'in')
+  ->defjit(invoke => 'flowable', q{ &$fn($flowable); })
+  ->defadmittance('>in' => q{})
+  ->defflow('>in' => sub
+    {
+      my ($self, $jit, $flowable) = @_;
+      $self->invoke($jit, $flowable);
+    });
+#line 62 "pushback.md"
 package pushback;
 use Exporter qw/import/;
 use constant io => pushback::io->new;
