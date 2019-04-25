@@ -205,8 +205,80 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
-#line 181 "pushback/flowable.md"
+#line 179 "pushback/flowable.md"
+package pushback::flowable;
+
+sub if_nonzero
+{
+  my ($self, $jit, $f) = @_;
+  $self->if_nonzero_($jit);
+  &$f();
+  $self->end_($jit);
+}
+
+sub if_positive
+{
+  my ($self, $jit, $f) = @_;
+  $self->if_positive_($jit);
+  &$f();
+  $self->end_($jit);
+}
+
+sub is_negative
+{
+  my ($self, $jit, $f) = @_;
+  $self->if_negative_($jit);
+  &$f();
+  $self->end_($jit);
+}
+#line 209 "pushback/flowable.md"
+pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
+  ->isa('pushback::flowable')
+  ->def(new => sub
+    {
+      my $class   = shift;
+      my $xs      = shift;
+      my $n       = shift // 0;
+      my $offset  = shift // 0;
+      bless { xs     => $xs,
+              n      => $n,
+              offset => $offset }, $class;
+    })
+
+  ->def(xs      => sub { shift->{xs} })
+  ->def(n       => sub { shift->{n} })
+  ->def(offset  => sub { shift->{offset} })
+
+  ->defjit(assign_from_ => 'xs_ n_ offset_',
+    q{ $xs     = $xs_;
+       $n      = $n_;
+       $offset = $offset_; })
+
+  ->defjit(if_nonzero_  => '', q[ if ($n) { ])
+  ->defjit(if_positive_ => '', q[ if ($n > 0) { ])
+  ->defjit(if_negative_ => '', q[ if ($n < 0) { ])
+  ->defjit(end_         => '', q[ } ])
+
+  ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
+  ->defjit(set_to       => 'n_', q{ $n = $n_; })
+
+  ->def(copy => sub
+    {
+      my $self = shift;
+      my $jit  = shift;
+      my $into = shift // ref($self)->new;
+      $into->assign_from_($jit, $$self{xs}, $$self{n}, $$self{offset});
+      $into;
+    })
+
+  ->def(intersect => sub
+    {
+      my ($self, $jit, $rhs) = @_;
+      $self->intersect_($jit, $$rhs{n});
+    });
+#line 260 "pushback/flowable.md"
 pushback::jitclass->new('pushback::flowable::string', 'str n offset')
+  ->isa('pushback::flowable')
   ->def(new => sub
     {
       my $class   =  shift;
@@ -227,12 +299,14 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
        $n       = $n_;
        $offset  = $offset_; })
 
+  # Used by base class methods
   ->defjit(if_nonzero_  => '', q[ if ($n) { ])
   ->defjit(if_positive_ => '', q[ if ($n > 0) { ])
   ->defjit(if_negative_ => '', q[ if ($n < 0) { ])
   ->defjit(end_         => '', q[ } ])
 
   # TODO: update to handle offsets correctly
+  # TODO: modify jit class base to support some destructuring
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
 
   ->defjit(set_to => 'n_', q{ $n = $n_; })
@@ -244,30 +318,6 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
       my $into = shift // ref($self)->new;
       $into->assign_from_($jit, $$self{str_ref}, $$self{n}, $$self{offset});
       $into;
-    })
-
-  ->def(if_nonzero => sub
-    {
-      my ($self, $jit, $f) = @_;
-      $self->if_nonzero_($jit);
-      &$f();
-      $self->end_($jit);
-    })
-
-  ->def(if_positive => sub
-    {
-      my ($self, $jit, $f) = @_;
-      $self->if_positive_($jit);
-      &$f();
-      $self->end_($jit);
-    })
-
-  ->def(is_negative => sub
-    {
-      my ($self, $jit, $f) = @_;
-      $self->if_negative_($jit);
-      &$f();
-      $self->end_($jit);
     })
 
   ->def(intersect => sub
