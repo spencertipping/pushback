@@ -122,6 +122,133 @@ The above can be read as "someone writing to `cat`'s `in` has the same
 admittance as `cat` writing to the endpoint of its `out`".
 
 
+## Process base class
+```perl
+package pushback::process;
+use Scalar::Util;
+
+no warnings 'portable';
+use constant HOST_MASK => 0xffff_f000_0000_0000;
+use constant PROC_MASK => 0x0000_0fff_ffff_0000;
+use constant PORT_MASK => 0x0000_0000_0000_ffff;
+
+sub new
+{
+  my ($class, $io) = @_;
+  my $self = bless { ports      => [],
+                     pins       => {},
+                     process_id => 0,
+                     io         => $io }, $class;
+  $$self{process_id} = $io->add_process($self);
+  $self;
+}
+
+sub DESTROY
+{
+  my $self = shift;
+  $$self{io}->remove_process($$self{process_id});
+  die "TODO: disconnect ports";
+}
+
+sub io          { shift->{io} }
+sub ports       { shift->{ports} }
+sub process_id  { shift->{process_id} }
+sub host_id     { shift->{process_id} & HOST_MASK }
+
+sub port_id_for { shift->{process_id} | shift }
+sub process_for { shift->{io}->process_for(shift) }
+
+sub connect
+{
+  my ($self, $port, $destination) = @_;
+  return 0 if $$self{ports}[$port];
+  $$self{ports}[$port] = $destination;
+  $self->process_for($destination)
+       ->connect($self, $destination & PORT_MASK, $self->port_id_for($port));
+  $self;
+}
+
+sub connection
+{
+  my ($self, $port) = @_;
+  my $destination = $$self{ports}[$port];
+  $destination ? ($self->process_for($destination), $destination & PORT_MASK)
+               : ();
+}
+
+sub disconnect
+{
+  my ($self, $port) = @_;
+  my $destination = $$self{ports}[$port];
+  return 0 unless $destination;
+  $$self{ports}[$port] = 0;
+  $self->process_for($destination)->disconnect($destination & PORT_MASK);
+  $self;
+}
+```
+
+
+### Admittance and flow handlers
+Before I get into the details here, let's talk about the setup we inherit from
+the metaclass.
+
+`pushback::processclass`, defined below, binds two hashes into the package of
+the derived class. One is `%package::admittance`, which maps declarative port
+specifications like `>in` to the JIT delegates that handle admittance for those
+ports along those directions. The other is `%package::flow`, which does the same
+thing for flow JIT functions.
+
+It's possible to ask about other end of a connection; for instance, you can say
+`$proc->admittance('out>', ...)` to refer to "the write-admittance for whatever
+your `out` port is connected to".
+
+So ... given all of that, the goal of these functions is to figure out which
+branch(es) to use for a given port request and JIT them into the right context.
+If no branches apply, then we set admittance and flow to zero.
+
+```perl
+sub admittance
+{
+  my ($self, $port, $jit, $flowable) = @_;
+  my ($direction, $portname);
+
+  if (Scalar::Util::looks_like_number $port)
+  {
+    # Convert numeric ports to their symbolic names so we can choose a
+    # declarative branch to follow.
+    $direction = "=";
+    $portname = $self->port_name($port) // die "$self:$port is not defined"
+      if Scalar::Util::looks_like_number $port;
+  }
+  else
+  {
+    die "$port refers to the remote endpoint; you need to ask the other process"
+      if $port =~ /[<>=]$/;
+    ($direction, $portname) = $port =~ /^([<>=])(\w+)/
+      or die "$port isn't a valid admittance request; do you need a "
+           . "directional prefix?";
+  }
+
+  # Now identify applicable branches. If the request is unidirectional, then
+  # look only for a handler for that specific direction; otherwise 
+
+}
+
+sub flow
+{
+}
+
+sub port_name
+{
+  no strict 'refs';
+  my ($self, $port_index) = @_;
+  my $ports = \%{ref($self) . "::ports"};
+  $$ports{$_} == $port_index and return $_ for keys %$$ports;
+  undef;
+}
+```
+
+
 ## Process metaclass
 `pushback::processclass` is a metaclass that extends `pushback::jitclass`,
 although process classes themselves don't extend any JIT parent.
@@ -139,16 +266,12 @@ sub new
   $$self{ports}      = {};      # name -> port number
   $self->defport($_) for split/\s+/, $ports;
 
-  $$self{admittance} = {};
-  $$self{flow}       = {};
+  {
+    no strict 'refs';
+    $$self{admittance} = \%{"$$self{package}\::admittance_defs"};
+    $$self{flow}       = \%{"$$self{package}\::flow_defs"};
+  }
   $self;
-}
-
-sub port_name
-{
-  my ($self, $port_index) = @_;
-  $$self{ports}{$_} == $port_index and return $_ for keys %{$$self{ports}};
-  undef;
 }
 ```
 
@@ -194,14 +317,98 @@ sub defport
 sub defadmittance
 {
   my ($self, $port, $a) = @_;
-  $$self{admittance}{$port} = $a;
+  my ($direction) = $port =~ /^([<>=])/
+    or die "defadmittance: '$port' must begin with a direction indicator";
+
+  if (ref $a)
+  {
+    $$self{admittance}{$port} = $a;
+  }
+  elsif ($a =~ /^([<>=])\w+$/)          # route back to this process
+  {
+    die "admittance from $port to $a modifies flow direction"
+      unless $1 eq $direction;
+    $$self{admittance}{$port} = sub
+    {
+      my ($proc, $jit, $flowable) = @_;
+      $proc->admittance($a, $jit, $flowable);
+    };
+  }
+  elsif ($a =~ /^\w+([<>=])$/)          # route through port connection
+  {
+    die "admittance from $port to $a modifies flow direction"
+      unless $1 eq $direction;
+    $$self{admittance}{$port} = sub
+    {
+      my ($proc, $jit, $flowable) = @_;
+      my ($dest, $dport) = $proc->connection($port);
+      if (defined $dest)
+      {
+        $dest->admittance($dport, $jit, $flowable);
+      }
+      else
+      {
+        $flowable->set_to($jit, 0);
+      }
+    };
+  }
+  else                                  # compile expression
+  {
+    my $method = "$port\_admittance";
+    $self->defjit($method, 'result_', qq{ \$result_ = ($a); });
+    $$self{admittance}{$port} = sub
+    {
+      my ($proc, $jit, $flowable) = @_;
+      $proc->$method($jit, my $result);
+      $flowable->set_to($jit, $result);
+    };
+  }
+
   $self;
 }
 
 sub defflow
 {
   my ($self, $port, $f) = @_;
-  $$self{flow}{$port} = $f;
+  my ($direction) = $port =~ /^([<>=])/
+    or die "defflow: '$port' must begin with a direction indicator";
+
+  if (ref $f)
+  {
+    $$self{flow}{$port} = $f;
+  }
+  elsif ($f =~ /^([<>=])\w+$/)          # route back to this process
+  {
+    die "flow from $port to $f modifies direction" unless $1 eq $direction;
+    $$self{flow}{$port} = sub
+    {
+      my ($proc, $jit, $flowable) = @_;
+      $proc->flow($f, $jit, $flowable);
+    };
+  }
+  elsif ($f =~ /^\w+([<>=])$/)          # route through port connection
+  {
+    die "flow from $port to $f modifies direction" unless $1 eq $direction;
+    $$self{flow}{$port} = sub
+    {
+      my ($proc, $jit, $flowable) = @_;
+      my ($dest, $dport) = $proc->connection($port);
+      if (defined $dest)
+      {
+        $dest->flow($dport, $jit, $flowable);
+      }
+      else
+      {
+        $flowable->set_to($jit, 0);
+      }
+    };
+  }
+  else
+  {
+    die "unknown flow delegation spec: '$f' (expecting function, self-route, "
+      . "or connection-route)";
+  }
+
   $self;
 }
 ```
@@ -239,6 +446,16 @@ process instance. In this case the branch can refer to other handlers by their
 symbolic names, e.g. `$self->admittance('out>', ...)`. The branch can also route
 back to the process itself, e.g. `$self->admittance('>in', ...)`.
 
+Because branches can be specified as functions, we can't erase our flow-routing
+syntax at metaclass-compile time. The generated process class needs an
+`->admittance` method that can parse things like `in<` and JIT the corresponding
+code. We could write a closure, but it's easier to push the declared admittance
+and flow definitions into a package global in the compiled class.
+
+```perl
+
+```
+
 
 ### Port ranges
 You can define a range of ports that share admittance and flow characteristics.
@@ -246,59 +463,3 @@ For example, a broadcast process would probably have a range of output ports,
 allowing users to connect or disconnect an unspecified number of processes.
 
 **TODO:** more detail
-
-
-## Process base class
-```perl
-package pushback::process;
-no warnings 'portable';
-use constant HOST_MASK => 0xffff_f000_0000_0000;
-use constant PROC_MASK => 0x0000_0fff_ffff_0000;
-use constant PORT_MASK => 0x0000_0000_0000_ffff;
-
-sub new
-{
-  my ($class, $io) = @_;
-  my $self = bless { ports      => [],
-                     pins       => {},
-                     process_id => 0,
-                     io         => $io }, $class;
-  $$self{process_id} = $io->add_process($self);
-  $self;
-}
-
-sub DESTROY
-{
-  my $self = shift;
-  $$self{io}->remove_process($$self{process_id});
-  die "TODO: disconnect ports";
-}
-
-sub io          { shift->{io} }
-sub ports       { shift->{ports} }
-sub process_id  { shift->{process_id} }
-sub host_id     { shift->{process_id} & HOST_MASK }
-
-sub port_id_for { shift->{process_id} | shift }
-sub process_for { shift->{io}->process_for(shift) }
-
-sub connect
-{
-  my ($self, $port, $destination) = @_;
-  return 0 if $$self{ports}[$port];
-  $$self{ports}[$port] = $destination;
-  $self->process_for($destination)
-       ->connect($self, $destination & PORT_MASK, $self->port_id_for($port));
-  $self;
-}
-
-sub disconnect
-{
-  my ($self, $port) = @_;
-  my $destination = $$self{ports}[$port];
-  return 0 unless $destination;
-  $$self{ports}[$port] = 0;
-  $self->process_for($destination)->disconnect($destination & PORT_MASK);
-  $self;
-}
-```
