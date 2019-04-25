@@ -456,8 +456,8 @@ sub new
   {
     no strict 'refs';
     $$self{ports}      = \%{"$$self{package}\::ports"};
-    $$self{admittance} = \%{"$$self{package}\::admittance_defs"};
-    $$self{flow}       = \%{"$$self{package}\::flow_defs"};
+    $$self{admittance} = \%{"$$self{package}\::admittance"};
+    $$self{flow}       = \%{"$$self{package}\::flow"};
   }
 
   $$self{port_index} = 0;       # next free port number
