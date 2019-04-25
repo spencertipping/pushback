@@ -200,42 +200,84 @@ thing for flow JIT functions.
 
 It's possible to ask about other end of a connection; for instance, you can say
 `$proc->admittance('out>', ...)` to refer to "the write-admittance for whatever
-your `out` port is connected to".
+your `out` port is connected to". If the port isn't connected, the admittance
+will be zero.
 
-So ... given all of that, the goal of these functions is to figure out which
-branch(es) to use for a given port request and JIT them into the right context.
-If no branches apply, then we set admittance and flow to zero.
+The last complication is that we can refer to ports either by name or by number.
+
+Here's the API:
+
+```pl
+sub parse_portspec;             # ($port) -> ($process, $direction, $portname)
+sub port_name;                  # ($port_id) -> $port_name | undef
+sub admittance;                 # ($port, $jit, $flowable) -> $jit
+sub flow;                       # ($port, $jit, $flowable) -> $jit
+```
 
 ```perl
+sub zero_flow
+{
+  my ($proc, $jit, $flowable) = @_;
+  $flowable->set_to($jit, 0);
+}
+
 sub admittance
 {
+  no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
-  my ($direction, $portname);
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->admittance("$direction$portname", $jit, $flowable)
+    unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
 
-  if (Scalar::Util::looks_like_number $port)
-  {
-    # Convert numeric ports to their symbolic names so we can choose a
-    # declarative branch to follow.
-    $direction = "=";
-    $portname = $self->port_name($port) // die "$self:$port is not defined"
-      if Scalar::Util::looks_like_number $port;
-  }
-  else
-  {
-    die "$port refers to the remote endpoint; you need to ask the other process"
-      if $port =~ /[<>=]$/;
-    ($direction, $portname) = $port =~ /^([<>=])(\w+)/
-      or die "$port isn't a valid admittance request; do you need a "
-           . "directional prefix?";
-  }
-
-  # Now identify applicable branches. If the request is unidirectional, then
-  # look only for a handler for that specific direction; otherwise 
-
+  my $admittance = \%{ref($self) . "::admittance"};
+  ($$admittance{"=$portname"} // $$admittance{"$direction$portname"}
+                              // \&zero_flow)->($self, $jit, $flowable);
 }
 
 sub flow
 {
+  no strict 'refs';
+  my ($self, $port, $jit, $flowable) = @_;
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->flow("$direction$portname", $jit, $flowable)
+    unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
+
+  my $flow = \%{ref($self) . "::flow"};
+  ($$flow{"=$portname"} // $$flow{"$direction$portname"}
+                        // \&zero_flow)->($self, $jit, $flowable);
+}
+```
+
+Some port handling logic:
+
+```perl
+sub parse_portspec
+{
+  no strict 'refs';
+  my ($self, $port) = @_;
+  my ($portname, $direction);
+
+  # Handle remote port references: follow and delegate to the endpoint. Preserve
+  # direction by prepending it to the destination portspec.
+  if (($portname, $direction) = $port =~ /^(\w+)([<>=])$/)
+  {
+    my ($endpoint, $endport) = $self->connection(
+      Scalar::Util::looks_like_number($portname)
+        ? $portname
+        : ${ref($self) . "::ports"}{$portname}
+            // die "$self doesn't define named port $portname");
+    return $endpoint->parse_portspec("$direction$endport");
+  }
+
+  # We have a local port. Resolve it to a name and infer direction.
+  ($portname, $direction) = ($port, "=")
+    unless ($portname, $direction) = $port =~ /^([<>=])(\w+)$/;
+
+  $portname = $self->port_name($portname)
+    // die "$self doesn't define $portname"
+    if Scalar::Util::looks_like_number $portname;
+
+  ($self, $direction, $portname);
 }
 
 sub port_name
@@ -251,7 +293,8 @@ sub port_name
 
 ## Process metaclass
 `pushback::processclass` is a metaclass that extends `pushback::jitclass`,
-although process classes themselves don't extend any JIT parent.
+although process classes are children of `pushback::process` and are unrelated
+to any JIT bases.
 
 ```perl
 package pushback::processclass;
@@ -261,16 +304,15 @@ sub new
   my ($class, $name, $vars, $ports) = @_;
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
-
-  $$self{port_index} = 0;       # next free port number
-  $$self{ports}      = {};      # name -> port number
-  $self->defport($_) for split/\s+/, $ports;
-
   {
     no strict 'refs';
+    $$self{ports}      = \%{"$$self{package}\::ports"};
     $$self{admittance} = \%{"$$self{package}\::admittance_defs"};
     $$self{flow}       = \%{"$$self{package}\::flow_defs"};
   }
+
+  $$self{port_index} = 0;       # next free port number
+  $self->defport($_) for split/\s+/, $ports;
   $self;
 }
 ```
@@ -317,42 +359,30 @@ sub defport
 sub defadmittance
 {
   my ($self, $port, $a) = @_;
-  my ($direction) = $port =~ /^([<>=])/
+  my ($direction, $portname) = $port =~ /^([<>=])(\w+)$/
     or die "defadmittance: '$port' must begin with a direction indicator";
+  die "$self doesn't define port $portname"
+    unless exists $$self{ports}{$portname};
 
+  my ($aname, $adir);
   if (ref $a)
   {
     $$self{admittance}{$port} = $a;
   }
-  elsif ($a =~ /^([<>=])\w+$/)          # route back to this process
+  elsif (($adir, $aname) = $a =~ /^([<>=])(\w+)$/
+      or ($aname, $adir) = $a =~ /^(\w+)([<>=])$/)
   {
+    die "$self doesn't define port $aname" unless exists $$self{ports}{$aname};
     die "admittance from $port to $a modifies flow direction"
-      unless $1 eq $direction;
+      unless $adir eq $direction;
+
     $$self{admittance}{$port} = sub
     {
       my ($proc, $jit, $flowable) = @_;
       $proc->admittance($a, $jit, $flowable);
     };
   }
-  elsif ($a =~ /^\w+([<>=])$/)          # route through port connection
-  {
-    die "admittance from $port to $a modifies flow direction"
-      unless $1 eq $direction;
-    $$self{admittance}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      my ($dest, $dport) = $proc->connection($port);
-      if (defined $dest)
-      {
-        $dest->admittance($dport, $jit, $flowable);
-      }
-      else
-      {
-        $flowable->set_to($jit, 0);
-      }
-    };
-  }
-  else                                  # compile expression
+  else # compile expression
   {
     my $method = "$port\_admittance";
     $self->defjit($method, 'result_', qq{ \$result_ = ($a); });
@@ -370,37 +400,26 @@ sub defadmittance
 sub defflow
 {
   my ($self, $port, $f) = @_;
-  my ($direction) = $port =~ /^([<>=])/
-    or die "defflow: '$port' must begin with a direction indicator";
+  my ($direction, $portname) = $port =~ /^([<>=])(\w+)$/
+    or die "defadmittance: '$port' must begin with a direction indicator";
+  die "$self doesn't define port $portname"
+    unless exists $$self{ports}{$portname};
 
+  my ($fname, $fdir);
   if (ref $f)
   {
     $$self{flow}{$port} = $f;
   }
-  elsif ($f =~ /^([<>=])\w+$/)          # route back to this process
+  elsif (($fdir, $fname) = $f =~ /^([<>=])(\w+)$/
+      or ($fname, $fdir) = $f =~ /^(\w+)([<>=])$/)
   {
-    die "flow from $port to $f modifies direction" unless $1 eq $direction;
+    die "$self doesn't define port $fname" unless exists $$self{ports}{$fname};
+    die "flow from $port to $f modifies direction" unless $fdir eq $direction;
+
     $$self{flow}{$port} = sub
     {
       my ($proc, $jit, $flowable) = @_;
       $proc->flow($f, $jit, $flowable);
-    };
-  }
-  elsif ($f =~ /^\w+([<>=])$/)          # route through port connection
-  {
-    die "flow from $port to $f modifies direction" unless $1 eq $direction;
-    $$self{flow}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      my ($dest, $dport) = $proc->connection($port);
-      if (defined $dest)
-      {
-        $dest->flow($dport, $jit, $flowable);
-      }
-      else
-      {
-        $flowable->set_to($jit, 0);
-      }
     };
   }
   else
@@ -432,34 +451,9 @@ defadmittance('>in', sub
 ```
 
 
-### Unifying admittance and flow branches
-A quick recap of where we are at this point...
-
-The process metaclass has collected a series of admittance and flow handlers,
-each of which applies to a specific port along a specific direction. These
-handlers aren't necessarily exhaustive; in fact, in all likelihood there are
-gaps. These gaps should present zero admittance and should fail if you try to
-flow them.
-
-Any given flow/admittance branch may be a function defined in terms of the
-process instance. In this case the branch can refer to other handlers by their
-symbolic names, e.g. `$self->admittance('out>', ...)`. The branch can also route
-back to the process itself, e.g. `$self->admittance('>in', ...)`.
-
-Because branches can be specified as functions, we can't erase our flow-routing
-syntax at metaclass-compile time. The generated process class needs an
-`->admittance` method that can parse things like `in<` and JIT the corresponding
-code. We could write a closure, but it's easier to push the declared admittance
-and flow definitions into a package global in the compiled class.
-
-```perl
-
-```
-
-
 ### Port ranges
 You can define a range of ports that share admittance and flow characteristics.
 For example, a broadcast process would probably have a range of output ports,
 allowing users to connect or disconnect an unspecified number of processes.
 
-**TODO:** more detail
+**TODO**

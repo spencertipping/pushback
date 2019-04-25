@@ -375,36 +375,66 @@ sub disconnect
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
 }
-#line 210 "pushback/process.md"
+#line 218 "pushback/process.md"
+sub zero_flow
+{
+  my ($proc, $jit, $flowable) = @_;
+  $flowable->set_to($jit, 0);
+}
+
 sub admittance
 {
+  no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
-  my ($direction, $portname);
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->admittance("$direction$portname", $jit, $flowable)
+    unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
 
-  if (Scalar::Util::looks_like_number $port)
-  {
-    # Convert numeric ports to their symbolic names so we can choose a
-    # declarative branch to follow.
-    $direction = "=";
-    $portname = $self->port_name($port) // die "$self:$port is not defined"
-      if Scalar::Util::looks_like_number $port;
-  }
-  else
-  {
-    die "$port refers to the remote endpoint; you need to ask the other process"
-      if $port =~ /[<>=]$/;
-    ($direction, $portname) = $port =~ /^([<>=])(\w+)/
-      or die "$port isn't a valid admittance request; do you need a "
-           . "directional prefix?";
-  }
-
-  # Now identify applicable branches. If the request is unidirectional, then
-  # look only for a handler for that specific direction; otherwise 
-
+  my $admittance = \%{ref($self) . "::admittance"};
+  ($$admittance{"=$portname"} // $$admittance{"$direction$portname"}
+                              // \&zero_flow)->($self, $jit, $flowable);
 }
 
 sub flow
 {
+  no strict 'refs';
+  my ($self, $port, $jit, $flowable) = @_;
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->flow("$direction$portname", $jit, $flowable)
+    unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
+
+  my $flow = \%{ref($self) . "::flow"};
+  ($$flow{"=$portname"} // $$flow{"$direction$portname"}
+                        // \&zero_flow)->($self, $jit, $flowable);
+}
+#line 254 "pushback/process.md"
+sub parse_portspec
+{
+  no strict 'refs';
+  my ($self, $port) = @_;
+  my ($portname, $direction);
+
+  # Handle remote port references: follow and delegate to the endpoint. Preserve
+  # direction by prepending it to the destination portspec.
+  if (($portname, $direction) = $port =~ /^(\w+)([<>=])$/)
+  {
+    my ($endpoint, $endport) = $self->connection(
+      Scalar::Util::looks_like_number($portname)
+        ? $portname
+        : ${ref($self) . "::ports"}{$portname}
+            // die "$self doesn't define named port $portname");
+    return $endpoint->parse_portspec("$direction$endport");
+  }
+
+  # We have a local port. Resolve it to a name and infer direction.
+  ($portname, $direction) = ($port, "=")
+    unless ($portname, $direction) = $port =~ /^([<>=])(\w+)$/;
+
+  $portname = $self->port_name($portname)
+    // die "$self doesn't define $portname"
+    if Scalar::Util::looks_like_number $portname;
+
+  ($self, $direction, $portname);
 }
 
 sub port_name
@@ -415,7 +445,7 @@ sub port_name
   $$ports{$_} == $port_index and return $_ for keys %$$ports;
   undef;
 }
-#line 257 "pushback/process.md"
+#line 300 "pushback/process.md"
 package pushback::processclass;
 push our @ISA, 'pushback::jitclass';
 sub new
@@ -423,19 +453,18 @@ sub new
   my ($class, $name, $vars, $ports) = @_;
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
-
-  $$self{port_index} = 0;       # next free port number
-  $$self{ports}      = {};      # name -> port number
-  $self->defport($_) for split/\s+/, $ports;
-
   {
     no strict 'refs';
+    $$self{ports}      = \%{"$$self{package}\::ports"};
     $$self{admittance} = \%{"$$self{package}\::admittance_defs"};
     $$self{flow}       = \%{"$$self{package}\::flow_defs"};
   }
+
+  $$self{port_index} = 0;       # next free port number
+  $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 304 "pushback/process.md"
+#line 346 "pushback/process.md"
 sub defport
 {
   my $self = shift;
@@ -452,42 +481,30 @@ sub defport
 sub defadmittance
 {
   my ($self, $port, $a) = @_;
-  my ($direction) = $port =~ /^([<>=])/
+  my ($direction, $portname) = $port =~ /^([<>=])(\w+)$/
     or die "defadmittance: '$port' must begin with a direction indicator";
+  die "$self doesn't define port $portname"
+    unless exists $$self{ports}{$portname};
 
+  my ($aname, $adir);
   if (ref $a)
   {
     $$self{admittance}{$port} = $a;
   }
-  elsif ($a =~ /^([<>=])\w+$/)          # route back to this process
+  elsif (($adir, $aname) = $a =~ /^([<>=])(\w+)$/
+      or ($aname, $adir) = $a =~ /^(\w+)([<>=])$/)
   {
+    die "$self doesn't define port $aname" unless exists $$self{ports}{$aname};
     die "admittance from $port to $a modifies flow direction"
-      unless $1 eq $direction;
+      unless $adir eq $direction;
+
     $$self{admittance}{$port} = sub
     {
       my ($proc, $jit, $flowable) = @_;
       $proc->admittance($a, $jit, $flowable);
     };
   }
-  elsif ($a =~ /^\w+([<>=])$/)          # route through port connection
-  {
-    die "admittance from $port to $a modifies flow direction"
-      unless $1 eq $direction;
-    $$self{admittance}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      my ($dest, $dport) = $proc->connection($port);
-      if (defined $dest)
-      {
-        $dest->admittance($dport, $jit, $flowable);
-      }
-      else
-      {
-        $flowable->set_to($jit, 0);
-      }
-    };
-  }
-  else                                  # compile expression
+  else # compile expression
   {
     my $method = "$port\_admittance";
     $self->defjit($method, 'result_', qq{ \$result_ = ($a); });
@@ -505,37 +522,26 @@ sub defadmittance
 sub defflow
 {
   my ($self, $port, $f) = @_;
-  my ($direction) = $port =~ /^([<>=])/
-    or die "defflow: '$port' must begin with a direction indicator";
+  my ($direction, $portname) = $port =~ /^([<>=])(\w+)$/
+    or die "defadmittance: '$port' must begin with a direction indicator";
+  die "$self doesn't define port $portname"
+    unless exists $$self{ports}{$portname};
 
+  my ($fname, $fdir);
   if (ref $f)
   {
     $$self{flow}{$port} = $f;
   }
-  elsif ($f =~ /^([<>=])\w+$/)          # route back to this process
+  elsif (($fdir, $fname) = $f =~ /^([<>=])(\w+)$/
+      or ($fname, $fdir) = $f =~ /^(\w+)([<>=])$/)
   {
-    die "flow from $port to $f modifies direction" unless $1 eq $direction;
+    die "$self doesn't define port $fname" unless exists $$self{ports}{$fname};
+    die "flow from $port to $f modifies direction" unless $fdir eq $direction;
+
     $$self{flow}{$port} = sub
     {
       my ($proc, $jit, $flowable) = @_;
       $proc->flow($f, $jit, $flowable);
-    };
-  }
-  elsif ($f =~ /^\w+([<>=])$/)          # route through port connection
-  {
-    die "flow from $port to $f modifies direction" unless $1 eq $direction;
-    $$self{flow}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      my ($dest, $dport) = $proc->connection($port);
-      if (defined $dest)
-      {
-        $dest->flow($dport, $jit, $flowable);
-      }
-      else
-      {
-        $flowable->set_to($jit, 0);
-      }
     };
   }
   else
@@ -546,8 +552,6 @@ sub defflow
 
   $self;
 }
-#line 456 "pushback/process.md"
-
 #line 7 "pushback/io.md"
 package pushback::io;
 use overload qw/ @{} processes /;
