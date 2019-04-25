@@ -304,6 +304,7 @@ sub new
   my ($class, $name, $vars, $ports) = @_;
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
+  $self->isa('pushback::process');
   {
     no strict 'refs';
     no warnings 'once';

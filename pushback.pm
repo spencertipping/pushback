@@ -283,7 +283,7 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
     {
       my $class   =  shift;
       my $str_ref = \shift;
-      my $n       =  shift // 0;
+      my $n       =  shift // length $$str_ref;
       my $offset  =  shift // 0;
       bless { str_ref => $str_ref,
               n       => $n,
@@ -503,6 +503,7 @@ sub new
   my ($class, $name, $vars, $ports) = @_;
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
+  $self->isa('pushback::process');
   {
     no strict 'refs';
     no warnings 'once';
@@ -515,7 +516,7 @@ sub new
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 347 "pushback/process.md"
+#line 348 "pushback/process.md"
 sub defport
 {
   my $self = shift;

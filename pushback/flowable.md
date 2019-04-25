@@ -263,7 +263,7 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
     {
       my $class   =  shift;
       my $str_ref = \shift;
-      my $n       =  shift // 0;
+      my $n       =  shift // length $$str_ref;
       my $offset  =  shift // 0;
       bless { str_ref => $str_ref,
               n       => $n,
