@@ -162,7 +162,7 @@ negotiation.
 
 ```pl
 $flowable->copy($jit, $into // ());
-$flowable->set_to_zero($jit);
+$flowable->set_to($jit, $n);
 $flowable->if_nonzero($jit, sub {...});
 $flowable->if_positive($jit, sub {...});
 $flowable->if_negative($jit, sub {...});
@@ -207,7 +207,7 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
   # TODO: update to handle offsets correctly
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
 
-  ->defjit(set_to_zero => '', q{ $n = 0; })
+  ->defjit(set_to => 'n_', q{ $n = $n_; })
 
   ->def(copy => sub
     {

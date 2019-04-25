@@ -1,0 +1,13 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Benchmark qw/timethese/;
+
+my $x = 0;
+sub shift_fn { my $val = shift; $x += $val }
+sub snail_fn { my ($val) = @_; $x += $val }
+
+timethese 10_000_000, {
+  shift_fn => sub { shift_fn(1) },
+  snail_fn => sub { snail_fn(1) },
+};

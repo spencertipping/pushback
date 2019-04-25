@@ -235,7 +235,7 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
   # TODO: update to handle offsets correctly
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
 
-  ->defjit(set_to_zero => '', q{ $n = 0; })
+  ->defjit(set_to => 'n_', q{ $n = $n_; })
 
   ->def(copy => sub
     {
@@ -322,28 +322,49 @@ sub new
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
 
-  $$self{port_index}  = 0;      # next free port number
-  $$self{ports}       = {};     # name -> port number
+  $$self{port_index} = 0;       # next free port number
+  $$self{ports}      = {};      # name -> port number
   $self->defport($_) for split/\s+/, $ports;
+
+  $$self{admittance} = {};
+  $$self{flow}       = {};
   $self;
 }
-#line 171 "pushback/process.md"
+
+sub port_name
+{
+  my ($self, $port_index) = @_;
+  $$self{ports}{$_} == $port_index and return $_ for keys %{$$self{ports}};
+  undef;
+}
+#line 181 "pushback/process.md"
 sub defport
 {
-  my ($self, $port) = @_;
-  my $index = $$self{port_index}++;
-  $$self{ports}{$port} = $index;
-  $self->def("connect_$port"    => sub { shift->connect($index, @_) })
-       ->def("disconnect_$port" => sub { shift->disconnect($index) })
-       ->def($port              => sub { shift->port_id_for($index) });
+  my $self = shift;
+  for my $port (@_)
+  {
+    my $index = $$self{ports}{$port} = $$self{port_index}++;
+    $self->def("connect_$port"    => sub { shift->connect($index, @_) })
+         ->def("disconnect_$port" => sub { shift->disconnect($index) })
+         ->def("$port\_port_id"   => sub { shift->port_id_for($index) });
+  }
   $self;
 }
 
 sub defadmittance
 {
-  my ($self, $a) = @_;
+  my ($self, $port, $a) = @_;
+  $$self{admittance}{$port} = $a;
+  $self;
 }
-#line 217 "pushback/process.md"
+
+sub defflow
+{
+  my ($self, $port, $f) = @_;
+  $$self{flow}{$port} = $f;
+  $self;
+}
+#line 253 "pushback/process.md"
 package pushback::process;
 no warnings 'portable';
 use constant HOST_MASK => 0xffff_f000_0000_0000;

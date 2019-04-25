@@ -135,10 +135,20 @@ sub new
   my $self = pushback::jitclass::new $class,
                $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
 
-  $$self{port_index}  = 0;      # next free port number
-  $$self{ports}       = {};     # name -> port number
+  $$self{port_index} = 0;       # next free port number
+  $$self{ports}      = {};      # name -> port number
   $self->defport($_) for split/\s+/, $ports;
+
+  $$self{admittance} = {};
+  $$self{flow}       = {};
   $self;
+}
+
+sub port_name
+{
+  my ($self, $port_index) = @_;
+  $$self{ports}{$_} == $port_index and return $_ for keys %{$$self{ports}};
+  undef;
 }
 ```
 
@@ -170,18 +180,29 @@ wouldn't make sense because flow is a side effect.)
 ```perl
 sub defport
 {
-  my ($self, $port) = @_;
-  my $index = $$self{port_index}++;
-  $$self{ports}{$port} = $index;
-  $self->def("connect_$port"    => sub { shift->connect($index, @_) })
-       ->def("disconnect_$port" => sub { shift->disconnect($index) })
-       ->def($port              => sub { shift->port_id_for($index) });
+  my $self = shift;
+  for my $port (@_)
+  {
+    my $index = $$self{ports}{$port} = $$self{port_index}++;
+    $self->def("connect_$port"    => sub { shift->connect($index, @_) })
+         ->def("disconnect_$port" => sub { shift->disconnect($index) })
+         ->def("$port\_port_id"   => sub { shift->port_id_for($index) });
+  }
   $self;
 }
 
 sub defadmittance
 {
-  my ($self, $a) = @_;
+  my ($self, $port, $a) = @_;
+  $$self{admittance}{$port} = $a;
+  $self;
+}
+
+sub defflow
+{
+  my ($self, $port, $f) = @_;
+  $$self{flow}{$port} = $f;
+  $self;
 }
 ```
 
@@ -202,6 +223,21 @@ defadmittance('>in', sub
        ->copy($jit, $flowable);
 });
 ```
+
+
+### Unifying admittance and flow branches
+A quick recap of where we are at this point...
+
+The process metaclass has collected a series of admittance and flow handlers,
+each of which applies to a specific port along a specific direction. These
+handlers aren't necessarily exhaustive; in fact, in all likelihood there are
+gaps. These gaps should present zero admittance and should fail if you try to
+flow them.
+
+Any given flow/admittance branch may be a function defined in terms of the
+process instance. In this case the branch can refer to other handlers by their
+symbolic names, e.g. `$self->admittance('out>', ...)`. The branch can also route
+back to the process itself, e.g. `$self->admittance('>in', ...)`.
 
 
 ### Port ranges
