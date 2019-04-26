@@ -172,6 +172,7 @@ sub defjit
 }
 #line 264 "pushback/jit.md"
 package pushback::jitcompiler;
+use Scalar::Util qw/refaddr/;
 use overload qw/ "" describe /;
 
 sub new
@@ -209,18 +210,24 @@ sub invalidation_flag { shift->{invalidation} }
 sub code
 {
   my $self = shift;
-
-  if (@_ == 1)
-  {
-    # Fast path: no variables to bind, so add code verbatim.
-    push @{$$self{fragments}}, shift;
-    return $self;
-  }
+  if (@_ == 1) { push @{$$self{fragments}}, shift }
   else
   {
     # Slow path: bind named references and rewrite variables.
-    die "TODO";
+    my $code = shift;
+    my %rewrites;
+    while (@_)
+    {
+      my $name =  shift;
+      my $ref  = \shift;
+      ${$$self{refs}}{refaddr $ref} = $ref;
+      $rewrites{$name} =
+        ${$$self{ref_gensyms}}{refaddr $ref} //= '_' . ++${$$self{gensym_id}};
+    }
+    my $subst = join"|", keys %rewrites;
+    push @{$$self{fragments}}, $code =~ s/\$($subst)\b/"\$\$$rewrites{$1}"/egr;
   }
+  $self;
 }
 
 sub compile
@@ -543,6 +550,19 @@ sub compile_admittance
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
   my $jit_flowable = $flowable->copy_nonjit;
+
+  $jit->code(q[ sub {
+      goto &{$cached = &$regen($port, $flowable)} if $jit_invalidated;
+      $_[0]->copy_nonjit($flowable); ],
+    port            => $port,
+    cached          => $$self{admittance_fns}{$port},
+    regen           => $self->can('compile_admittance'),
+    jit_invalidated => ${$jit->invalidation_flag},
+    flowable        => $jit_flowable);
+
+  $self->jit_admittance($port, $jit, $jit_flowable);
+  $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
+  $jit->compile;
 }
 
 sub flow
@@ -561,8 +581,22 @@ sub compile_flow
 {
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+  my $jit_flowable = $flowable->copy_nonjit;
+
+  $jit->code(q[ sub {
+      goto &{$cached = &$regen($port, $flowable)} if $jit_invalidated;
+      $_[0]->copy_nonjit($flowable); ],
+    port            => $port,
+    cached          => $$self{flow_fns}{$port},
+    regen           => $self->can('compile_flow'),
+    jit_invalidated => ${$jit->invalidation_flag},
+    flowable        => $jit_flowable);
+
+  $self->jit_flow($port, $jit, $jit_flowable);
+  $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
+  $jit->compile;
 }
-#line 333 "pushback/process.md"
+#line 360 "pushback/process.md"
 sub zero_flow
 {
   my ($proc, $jit, $flowable) = @_;
@@ -599,7 +633,7 @@ sub jit_flow
   ($$flow{"=$portname"} // $$flow{"$direction$portname"}
                         // \&zero_flow)->($self, $jit, $flowable);
 }
-#line 374 "pushback/process.md"
+#line 401 "pushback/process.md"
 sub parse_portspec
 {
   no strict 'refs';
@@ -644,7 +678,7 @@ sub port_name
   $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }
-#line 427 "pushback/process.md"
+#line 454 "pushback/process.md"
 package pushback::processclass;
 push our @ISA, 'pushback::jitclass';
 sub new
@@ -665,7 +699,7 @@ sub new
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 475 "pushback/process.md"
+#line 502 "pushback/process.md"
 sub defport
 {
   my $self = shift;

@@ -1,0 +1,14 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+sub foo { print "foo\n" }
+sub bar { print "bar\n" }
+
+sub do_goto
+{
+  goto &{rand() > 0.5 ? \&foo : \&bar};
+  print "nope\n";
+}
+
+do_goto for 1..10;

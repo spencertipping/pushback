@@ -281,6 +281,19 @@ sub compile_admittance
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
   my $jit_flowable = $flowable->copy_nonjit;
+
+  $jit->code(q[ sub {
+      goto &{$cached = &$regen($port, $flowable)} if $jit_invalidated;
+      $_[0]->copy_nonjit($flowable); ],
+    port            => $port,
+    cached          => $$self{admittance_fns}{$port},
+    regen           => $self->can('compile_admittance'),
+    jit_invalidated => ${$jit->invalidation_flag},
+    flowable        => $jit_flowable);
+
+  $self->jit_admittance($port, $jit, $jit_flowable);
+  $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
+  $jit->compile;
 }
 
 sub flow
@@ -299,6 +312,20 @@ sub compile_flow
 {
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+  my $jit_flowable = $flowable->copy_nonjit;
+
+  $jit->code(q[ sub {
+      goto &{$cached = &$regen($port, $flowable)} if $jit_invalidated;
+      $_[0]->copy_nonjit($flowable); ],
+    port            => $port,
+    cached          => $$self{flow_fns}{$port},
+    regen           => $self->can('compile_flow'),
+    jit_invalidated => ${$jit->invalidation_flag},
+    flowable        => $jit_flowable);
+
+  $self->jit_flow($port, $jit, $jit_flowable);
+  $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
+  $jit->compile;
 }
 ```
 

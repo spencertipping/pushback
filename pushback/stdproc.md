@@ -37,18 +37,15 @@ $ perl -I. -Mpushback -e '
 
     $cat->connect(out => $each->port_id_for("in"));
     $$each{fn} = sub { print "each flow: ${shift->{str_ref}}\n" };
+    my $a = $cat->admittance(">in", $f);
+    print "admittance: $$a{n}\n";
 
-    my $jit = pushback::jitcompiler->new;
-    $cat->jit_admittance(">in", $jit, $f);
-    $jit->compile;
-    print "admittance: $$f{n}\n";
-
-    $jit = pushback::jitcompiler->new;
-    $cat->jit_flow(">in", $jit, $f);
-    $jit->compile;
+    my $moved = $cat->flow(">in", $a);
+    print "moved: $$moved{n}\n";
   '
 each pid: 65536
 cat pid: 131072
 admittance: 3
 each flow: foo
+moved: 3
 ```

@@ -262,6 +262,7 @@ This is where we collect operations and references. It's surprisingly boring.
 
 ```perl
 package pushback::jitcompiler;
+use Scalar::Util qw/refaddr/;
 use overload qw/ "" describe /;
 
 sub new
@@ -299,18 +300,24 @@ sub invalidation_flag { shift->{invalidation} }
 sub code
 {
   my $self = shift;
-
-  if (@_ == 1)
-  {
-    # Fast path: no variables to bind, so add code verbatim.
-    push @{$$self{fragments}}, shift;
-    return $self;
-  }
+  if (@_ == 1) { push @{$$self{fragments}}, shift }
   else
   {
     # Slow path: bind named references and rewrite variables.
-    die "TODO";
+    my $code = shift;
+    my %rewrites;
+    while (@_)
+    {
+      my $name =  shift;
+      my $ref  = \shift;
+      ${$$self{refs}}{refaddr $ref} = $ref;
+      $rewrites{$name} =
+        ${$$self{ref_gensyms}}{refaddr $ref} //= '_' . ++${$$self{gensym_id}};
+    }
+    my $subst = join"|", keys %rewrites;
+    push @{$$self{fragments}}, $code =~ s/\$($subst)\b/"\$\$$rewrites{$1}"/egr;
   }
+  $self;
 }
 
 sub compile
