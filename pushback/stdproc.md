@@ -16,7 +16,7 @@ pushback::processclass->new(cat => '', 'in out')
 ```perl
 pushback::processclass->new(each => 'fn', 'in')
   ->defjit(invoke => 'flowable', q{ &$fn($flowable); })
-  ->defadmittance('>in' => q{})
+  ->defadmittance('>in' => q{ 3 })
   ->defflow('>in' => sub
     {
       my ($self, $jit, $flowable) = @_;
@@ -35,17 +35,18 @@ $ perl -I. -Mpushback -e '
     print "each pid: $$each{process_id}\n";
     print "cat pid: $$cat{process_id}\n";
 
-    $cat->connect(1, $each->port_id_for(0));
+    $cat->connect(out => $each->port_id_for("in"));
     $$each{fn} = sub { print "each flow: ${shift->{str_ref}}\n" };
 
     my $jit = pushback::jitcompiler->new;
-    $cat->jit_admittance(0, $jit, $f);
+    $cat->jit_admittance(">in", $jit, $f);
     $jit->compile;
     print "admittance: $$f{n}\n";
 
     $jit = pushback::jitcompiler->new;
-    $cat->jit_flow(0, $jit, $f);
-    $jit->compile'
+    $cat->jit_flow(">in", $jit, $f);
+    $jit->compile;
+  '
 each pid: 65536
 cat pid: 131072
 admittance: 3

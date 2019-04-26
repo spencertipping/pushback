@@ -262,14 +262,33 @@ This is where we collect operations and references. It's surprisingly boring.
 
 ```perl
 package pushback::jitcompiler;
+use overload qw/ "" describe /;
+
 sub new
 {
   my $class = shift;
   bless { fragments    => [],
           invalidation => \(shift // my $iflag),
           gensym_id    => \(my $gensym = 0),
+          debug        => 0,
           refs         => {},
           ref_gensyms  => {} }, $class;
+}
+
+sub enable_debugging { $_[0]->{debug} = 1; shift }
+sub debug
+{
+  my $self = shift;
+  $$self{debug} ? $self->code(@_) : $self;
+}
+
+sub describe
+{
+  my $self = shift;
+  my $code = join"\n", @{$$self{fragments}};
+  my $vars = join", ", map "\$$$self{ref_gensyms}{$_} = \\${$$self{refs}{$_}}",
+                       sort keys %{$$self{ref_gensyms}};
+  "jit( $vars ) {\n$code\n}";
 }
 
 sub gensym_id         { shift->{gensym_id} }

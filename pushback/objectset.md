@@ -8,11 +8,11 @@ $ perl -I. -Mpushback -e '
     my $set = pushback::objectset->new;
     my $id  = $set->add($obj);
     my $id2 = $set->add("bar");
-    print "$id: ${$$set[$id]}\n";
-    print "$id2: ${$$set[$id2]}\n";
+    print "$id: $$set[$id]\n";
+    print "$id2: $$set[$id2]\n";
     $set->remove($id);
     $id = $set->add("bif");
-    print "$id: ${$$set[$id]}\n"'
+    print "$id: $$set[$id]\n"'
 1: foo
 2: bar
 1: bif
@@ -28,7 +28,8 @@ sub add
 {
   my $id = (my $self = shift)->next_id;
   vec($$self[0], $id, 1) = 1;
-  weaken($$self[$id] = \shift);
+  $$self[$id] = shift;
+  weaken $$self[$id] if ref $$self[$id];
   $id;
 }
 

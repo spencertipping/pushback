@@ -125,6 +125,9 @@ admittance as `cat` writing to the endpoint of its `out`".
 ## Process base class
 ```perl
 package pushback::process;
+use overload qw/ == eq_by_refaddr
+                 "" describe /;
+
 use Scalar::Util;
 
 no warnings 'portable';
@@ -150,40 +153,69 @@ sub DESTROY
   die "TODO: disconnect ports";
 }
 
+sub describe
+{
+  my $self = shift;
+  sprintf "[%s, pid=%d, ports=%s]",
+    ref($self),
+    $$self{process_id},
+    join",", map $self->port_name($_) . ($$self{ports}[$_] ? "*" : ""),
+                 0..$#{$$self{ports}};
+}
+
+sub eq_by_refaddr { Scalar::Util::refaddr shift == Scalar::Util::refaddr shift }
+
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
 sub process_id  { shift->{process_id} }
 sub host_id     { shift->{process_id} & HOST_MASK }
 
-sub port_id_for { shift->{process_id} | shift }
 sub process_for { shift->{io}->process_for(shift) }
+sub port_id_for
+{
+  my ($self, $port) = @_;
+  $$self{process_id} | $self->numeric_port($port);
+}
+
+sub numeric_port
+{
+  no strict 'refs';
+  my ($self, $port) = @_;
+  Scalar::Util::looks_like_number $port
+    ? $port
+    : ${ref($self) . "::ports"}{$port}
+      // die "$self doesn't define a port named $port";
+}
 
 sub connect
 {
   my ($self, $port, $destination) = @_;
+  $port = $self->numeric_port($port);
   return 0 if $$self{ports}[$port];
   $$self{ports}[$port] = $destination;
   $self->process_for($destination)
-       ->connect($self, $destination & PORT_MASK, $self->port_id_for($port));
+       ->connect($destination & PORT_MASK, $self->port_id_for($port));
+  $self;
+}
+
+sub disconnect
+{
+  my ($self, $port) = @_;
+  $port = $self->numeric_port($port);
+  my $destination = $$self{ports}[$port];
+  return 0 unless $destination;
+  $$self{ports}[$port] = 0;
+  $self->process_for($destination)->disconnect($destination & PORT_MASK);
   $self;
 }
 
 sub connection
 {
   my ($self, $port) = @_;
+  $port = $self->numeric_port($port);
   my $destination = $$self{ports}[$port];
   $destination ? ($self->process_for($destination), $destination & PORT_MASK)
                : ();
-}
-
-sub disconnect
-{
-  my ($self, $port) = @_;
-  my $destination = $$self{ports}[$port];
-  return 0 unless $destination;
-  $$self{ports}[$port] = 0;
-  $self->process_for($destination)->disconnect($destination & PORT_MASK);
-  $self;
 }
 ```
 
@@ -218,6 +250,7 @@ sub jit_flow;                   # ($port, $jit, $flowable) -> $jit
 sub zero_flow
 {
   my ($proc, $jit, $flowable) = @_;
+  $jit->debug("#line 1 \"zero_flow\"");
   $flowable->set_to($jit, 0);
 }
 
@@ -225,9 +258,11 @@ sub jit_admittance
 {
   no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
+  $jit->debug("#line 1 \"$self\::admittance($port)\"");
+
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
   return $proc->jit_admittance("$direction$portname", $jit, $flowable)
-    unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
+    unless $proc == $self;
 
   my $admittance = \%{ref($self) . "::admittance"};
   ($$admittance{"=$portname"} // $$admittance{"$direction$portname"}
@@ -238,9 +273,11 @@ sub jit_flow
 {
   no strict 'refs';
   my ($self, $port, $jit, $flowable) = @_;
+  $jit->debug("#line 1 \"$self\::flow($port)\"");
+
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
   return $proc->jit_flow("$direction$portname", $jit, $flowable)
-    unless Scalar::Util::refaddr $proc eq Scalar::Util::refaddr $self;
+    unless $proc == $self;
 
   my $flow = \%{ref($self) . "::flow"};
   ($$flow{"=$portname"} // $$flow{"$direction$portname"}
@@ -271,11 +308,18 @@ sub parse_portspec
 
   # We have a local port. Resolve it to a name and infer direction.
   ($portname, $direction) = ($port, "=")
-    unless ($portname, $direction) = $port =~ /^([<>=])(\w+)$/;
+    unless ($direction, $portname) = $port =~ /^([<>=])(\w+)$/;
 
-  $portname = $self->port_name($portname)
-    // die "$self doesn't define $portname"
-    if Scalar::Util::looks_like_number $portname;
+  if (Scalar::Util::looks_like_number $portname)
+  {
+    $portname = $self->port_name($portname)
+      // die "$self doesn't define $portname";
+  }
+  else
+  {
+    die "$self doesn't define named port $portname"
+      unless exists ${ref($self) . "::ports"}{$portname};
+  }
 
   ($self, $direction, $portname);
 }
@@ -285,7 +329,7 @@ sub port_name
   no strict 'refs';
   my ($self, $port_index) = @_;
   my $ports = \%{ref($self) . "::ports"};
-  $$ports{$_} == $port_index and return $_ for keys %$$ports;
+  $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }
 ```
@@ -381,7 +425,7 @@ sub defadmittance
     $$self{admittance}{$port} = sub
     {
       my ($proc, $jit, $flowable) = @_;
-      $proc->admittance($a, $jit, $flowable);
+      $proc->jit_admittance($a, $jit, $flowable);
     };
   }
   else # compile expression
@@ -421,7 +465,7 @@ sub defflow
     $$self{flow}{$port} = sub
     {
       my ($proc, $jit, $flowable) = @_;
-      $proc->flow($f, $jit, $flowable);
+      $proc->jit_flow($f, $jit, $flowable);
     };
   }
   else
