@@ -248,9 +248,12 @@ This means if you `jit_admittance(..., $flowable)`, you've not only inlined the
 logic from `$flowable`'s _class_, but its entire _identity_.
 
 This isn't a dealbreaker, of course. It just means we need to add a degree of
-separation when we compile our function.
-
-**TODO:** modify the flowable API to make this possible
+separation when we compile our function. The original `->admittance` call
+provides a flowable object that specifies the type but not the identity we want,
+so we JIT our admittance/flow functions against a copy of that object which we
+update outside the JIT context using `flowable::copy_nonjit`. This allows the
+JIT code to always refer to the same object at the cost of a little bit of
+entry/exit overhead.
 
 ```perl
 sub invalidation_flag_ref
@@ -277,6 +280,7 @@ sub compile_admittance
 {
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+  my $jit_flowable = $flowable->copy_nonjit;
 }
 
 sub flow

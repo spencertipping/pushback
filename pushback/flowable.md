@@ -167,6 +167,8 @@ $flowable->if_nonzero($jit, sub {...});
 $flowable->if_positive($jit, sub {...});
 $flowable->if_negative($jit, sub {...});
 
+$flowable->copy_nonjit($into // ());
+
 # many flowables also support math:
 $flowable->intersect($jit, $other);
 $flowable->union($jit, $other);
@@ -236,12 +238,21 @@ pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
   ->defjit(set_to       => 'n_', q{ $n = $n_; })
 
+  ->def(copy_nonjit => sub
+    {
+      my ($self, $into) = @_;
+      $into //= ref($self)->new;
+      $$into{xs}     = $$self{xs};
+      $$into{n}      = $$self{n};
+      $$into{offset} = $$self{offset};
+      $into;
+    })
+
   ->def(copy => sub
     {
-      my $self = shift;
-      my $jit  = shift;
-      my $into = shift // ref($self)->new;
-      $into->assign_from_($jit, $$self{xs}, $$self{n}, $$self{offset});
+      my ($self, $jit, $into) = @_;
+      ($into //= ref($self)->new)
+        ->assign_from_($jit, $$self{xs}, $$self{n}, $$self{offset});
       $into;
     })
 
@@ -290,6 +301,16 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
 
   ->defjit(set_to => 'n_', q{ $n = $n_; })
+
+  ->def(copy_nonjit => sub
+    {
+      my ($self, $into) = @_;
+      $into //= ref($self)->new;
+      $$into{str_ref} = $$self{str_ref};
+      $$into{n}       = $$self{n};
+      $$into{offset}  = $$self{offset};
+      $into;
+    })
 
   ->def(copy => sub
     {

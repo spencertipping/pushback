@@ -299,8 +299,18 @@ sub invalidation_flag { shift->{invalidation} }
 sub code
 {
   my $self = shift;
-  push @{$$self{fragments}}, shift;
-  $self;
+
+  if (@_ == 1)
+  {
+    # Fast path: no variables to bind, so add code verbatim.
+    push @{$$self{fragments}}, shift;
+    return $self;
+  }
+  else
+  {
+    # Slow path: bind named references and rewrite variables.
+    die "TODO";
+  }
 }
 
 sub compile

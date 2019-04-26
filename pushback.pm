@@ -209,8 +209,18 @@ sub invalidation_flag { shift->{invalidation} }
 sub code
 {
   my $self = shift;
-  push @{$$self{fragments}}, shift;
-  $self;
+
+  if (@_ == 1)
+  {
+    # Fast path: no variables to bind, so add code verbatim.
+    push @{$$self{fragments}}, shift;
+    return $self;
+  }
+  else
+  {
+    # Slow path: bind named references and rewrite variables.
+    die "TODO";
+  }
 }
 
 sub compile
@@ -224,7 +234,7 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
-#line 179 "pushback/flowable.md"
+#line 181 "pushback/flowable.md"
 package pushback::flowable;
 
 sub if_nonzero
@@ -250,7 +260,7 @@ sub is_negative
   &$f();
   $self->end_($jit);
 }
-#line 209 "pushback/flowable.md"
+#line 211 "pushback/flowable.md"
 pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
   ->isa('pushback::flowable')
   ->def(new => sub
@@ -281,12 +291,21 @@ pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
   ->defjit(set_to       => 'n_', q{ $n = $n_; })
 
+  ->def(copy_nonjit => sub
+    {
+      my ($self, $into) = @_;
+      $into //= ref($self)->new;
+      $$into{xs}     = $$self{xs};
+      $$into{n}      = $$self{n};
+      $$into{offset} = $$self{offset};
+      $into;
+    })
+
   ->def(copy => sub
     {
-      my $self = shift;
-      my $jit  = shift;
-      my $into = shift // ref($self)->new;
-      $into->assign_from_($jit, $$self{xs}, $$self{n}, $$self{offset});
+      my ($self, $jit, $into) = @_;
+      ($into //= ref($self)->new)
+        ->assign_from_($jit, $$self{xs}, $$self{n}, $$self{offset});
       $into;
     })
 
@@ -295,7 +314,7 @@ pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
       my ($self, $jit, $rhs) = @_;
       $self->intersect_($jit, $$rhs{n});
     });
-#line 260 "pushback/flowable.md"
+#line 271 "pushback/flowable.md"
 pushback::jitclass->new('pushback::flowable::string', 'str n offset')
   ->isa('pushback::flowable')
   ->def(new => sub
@@ -329,6 +348,16 @@ pushback::jitclass->new('pushback::flowable::string', 'str n offset')
   ->defjit(intersect_   => 'n_', q{ $n = abs($n_) < abs($n) ? $n_ : $n; })
 
   ->defjit(set_to => 'n_', q{ $n = $n_; })
+
+  ->def(copy_nonjit => sub
+    {
+      my ($self, $into) = @_;
+      $into //= ref($self)->new;
+      $$into{str_ref} = $$self{str_ref};
+      $$into{n}       = $$self{n};
+      $$into{offset}  = $$self{offset};
+      $into;
+    })
 
   ->def(copy => sub
     {
@@ -488,7 +517,7 @@ sub connection
   $destination ? ($self->process_for($destination), $destination & PORT_MASK)
                : ();
 }
-#line 256 "pushback/process.md"
+#line 259 "pushback/process.md"
 sub invalidation_flag_ref
 {
   my $self = shift;
@@ -513,6 +542,7 @@ sub compile_admittance
 {
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+  my $jit_flowable = $flowable->copy_nonjit;
 }
 
 sub flow
@@ -532,7 +562,7 @@ sub compile_flow
   my ($self, $port, $flowable) = @_;
   my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
 }
-#line 329 "pushback/process.md"
+#line 333 "pushback/process.md"
 sub zero_flow
 {
   my ($proc, $jit, $flowable) = @_;
@@ -569,7 +599,7 @@ sub jit_flow
   ($$flow{"=$portname"} // $$flow{"$direction$portname"}
                         // \&zero_flow)->($self, $jit, $flowable);
 }
-#line 370 "pushback/process.md"
+#line 374 "pushback/process.md"
 sub parse_portspec
 {
   no strict 'refs';
@@ -614,7 +644,7 @@ sub port_name
   $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }
-#line 423 "pushback/process.md"
+#line 427 "pushback/process.md"
 package pushback::processclass;
 push our @ISA, 'pushback::jitclass';
 sub new
@@ -635,7 +665,7 @@ sub new
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 471 "pushback/process.md"
+#line 475 "pushback/process.md"
 sub defport
 {
   my $self = shift;
