@@ -138,10 +138,13 @@ use constant PORT_MASK => 0x0000_0000_0000_ffff;
 sub new
 {
   my ($class, $io) = @_;
-  my $self = bless { ports      => [],
-                     pins       => {},
-                     process_id => 0,
-                     io         => $io }, $class;
+  my $self = bless { ports              => [],
+                     pins               => {},
+                     process_id         => 0,
+                     admittance_fns     => {},
+                     flow_fns           => {},
+                     invalidation_flags => [],
+                     io                 => $io }, $class;
   $$self{process_id} = $io->add_process($self);
   $self;
 }
@@ -187,6 +190,14 @@ sub numeric_port
       // die "$self doesn't define a port named $port";
 }
 
+sub invalidate_jit
+{
+  my $self = shift;
+  $$_ = 1 for @{$$self{invalidation_flags}};
+  @{$$self{invalidation_flags}} = ();
+  $self;
+}
+
 sub connect
 {
   my ($self, $port, $destination) = @_;
@@ -195,7 +206,7 @@ sub connect
   $$self{ports}[$port] = $destination;
   $self->process_for($destination)
        ->connect($destination & PORT_MASK, $self->port_id_for($port));
-  $self;
+  $self->invalidate_jit;
 }
 
 sub disconnect
@@ -206,7 +217,7 @@ sub disconnect
   return 0 unless $destination;
   $$self{ports}[$port] = 0;
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
-  $self;
+  $self->invalidate_jit;
 }
 
 sub connection
@@ -216,6 +227,74 @@ sub connection
   my $destination = $$self{ports}[$port];
   $destination ? ($self->process_for($destination), $destination & PORT_MASK)
                : ();
+}
+```
+
+
+### JIT entry points
+These functions provide normal methods so you don't have to manually invoke the
+JIT mechanics below. Let's talk a bit about what's going on here because it's
+not entirely straightforward.
+
+First, JIT functions can be invalidated -- for instance, if you modify any port
+connections. Invalidation will cause JIT functions to be recompiled before
+they're used again, although if you cause an invalidation while one is running
+it won't be interrupted.
+
+Second, the way we handle flowables is counterintuitive. Flowable instances will
+JIT-compile operations against themselves, for instance `set_to`; in doing so,
+they add JIT closure state that refers directly to their instance variables.
+This means if you `jit_admittance(..., $flowable)`, you've not only inlined the
+logic from `$flowable`'s _class_, but its entire _identity_.
+
+This isn't a dealbreaker, of course. It just means we need to add a degree of
+separation when we compile our function.
+
+**TODO:** modify the flowable API to make this possible
+
+```perl
+sub invalidation_flag_ref
+{
+  my $self = shift;
+  my $flag = 0;
+  push @{$$self{invalidation_flags}}, \$flag;
+  \$flag;
+}
+
+sub admittance
+{
+  my ($self, $port, $flowable) = @_;
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->admittance("$direction$portname", $flowable)
+    unless $proc == $self;
+
+  ($$self{admittance_fns}{"$direction$portname"}
+    //= $self->compile_admittance("$direction$portname", $flowable))
+  ->($flowable);
+}
+
+sub compile_admittance
+{
+  my ($self, $port, $flowable) = @_;
+  my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+}
+
+sub flow
+{
+  my ($self, $port, $flowable) = @_;
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->flow("$direction$portname", $flowable)
+    unless $proc == $self;
+
+  ($$self{flow_fns}{"$direction$portname"}
+    //= $self->compile_flow("$direction$portname", $flowable))
+  ->($flowable);
+}
+
+sub compile_flow
+{
+  my ($self, $port, $flowable) = @_;
+  my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
 }
 ```
 

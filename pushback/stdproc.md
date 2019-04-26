@@ -16,7 +16,7 @@ pushback::processclass->new(cat => '', 'in out')
 ```perl
 pushback::processclass->new(each => 'fn', 'in')
   ->defjit(invoke => 'flowable', q{ &$fn($flowable); })
-  ->defadmittance('>in' => q{ 3 })
+  ->defadmittance('>in' => sub {})      # nop: preserve existing admittance
   ->defflow('>in' => sub
     {
       my ($self, $jit, $flowable) = @_;

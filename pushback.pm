@@ -398,10 +398,13 @@ use constant PORT_MASK => 0x0000_0000_0000_ffff;
 sub new
 {
   my ($class, $io) = @_;
-  my $self = bless { ports      => [],
-                     pins       => {},
-                     process_id => 0,
-                     io         => $io }, $class;
+  my $self = bless { ports              => [],
+                     pins               => {},
+                     process_id         => 0,
+                     admittance_fns     => {},
+                     flow_fns           => {},
+                     invalidation_flags => [],
+                     io                 => $io }, $class;
   $$self{process_id} = $io->add_process($self);
   $self;
 }
@@ -447,6 +450,14 @@ sub numeric_port
       // die "$self doesn't define a port named $port";
 }
 
+sub invalidate_jit
+{
+  my $self = shift;
+  $$_ = 1 for @{$$self{invalidation_flags}};
+  @{$$self{invalidation_flags}} = ();
+  $self;
+}
+
 sub connect
 {
   my ($self, $port, $destination) = @_;
@@ -455,7 +466,7 @@ sub connect
   $$self{ports}[$port] = $destination;
   $self->process_for($destination)
        ->connect($destination & PORT_MASK, $self->port_id_for($port));
-  $self;
+  $self->invalidate_jit;
 }
 
 sub disconnect
@@ -466,7 +477,7 @@ sub disconnect
   return 0 unless $destination;
   $$self{ports}[$port] = 0;
   $self->process_for($destination)->disconnect($destination & PORT_MASK);
-  $self;
+  $self->invalidate_jit;
 }
 
 sub connection
@@ -477,7 +488,51 @@ sub connection
   $destination ? ($self->process_for($destination), $destination & PORT_MASK)
                : ();
 }
-#line 250 "pushback/process.md"
+#line 256 "pushback/process.md"
+sub invalidation_flag_ref
+{
+  my $self = shift;
+  my $flag = 0;
+  push @{$$self{invalidation_flags}}, \$flag;
+  \$flag;
+}
+
+sub admittance
+{
+  my ($self, $port, $flowable) = @_;
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->admittance("$direction$portname", $flowable)
+    unless $proc == $self;
+
+  ($$self{admittance_fns}{"$direction$portname"}
+    //= $self->compile_admittance("$direction$portname", $flowable))
+  ->($flowable);
+}
+
+sub compile_admittance
+{
+  my ($self, $port, $flowable) = @_;
+  my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+}
+
+sub flow
+{
+  my ($self, $port, $flowable) = @_;
+  my ($proc, $direction, $portname) = $self->parse_portspec($port);
+  return $proc->flow("$direction$portname", $flowable)
+    unless $proc == $self;
+
+  ($$self{flow_fns}{"$direction$portname"}
+    //= $self->compile_flow("$direction$portname", $flowable))
+  ->($flowable);
+}
+
+sub compile_flow
+{
+  my ($self, $port, $flowable) = @_;
+  my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
+}
+#line 329 "pushback/process.md"
 sub zero_flow
 {
   my ($proc, $jit, $flowable) = @_;
@@ -514,7 +569,7 @@ sub jit_flow
   ($$flow{"=$portname"} // $$flow{"$direction$portname"}
                         // \&zero_flow)->($self, $jit, $flowable);
 }
-#line 291 "pushback/process.md"
+#line 370 "pushback/process.md"
 sub parse_portspec
 {
   no strict 'refs';
@@ -559,7 +614,7 @@ sub port_name
   $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }
-#line 344 "pushback/process.md"
+#line 423 "pushback/process.md"
 package pushback::processclass;
 push our @ISA, 'pushback::jitclass';
 sub new
@@ -580,7 +635,7 @@ sub new
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 392 "pushback/process.md"
+#line 471 "pushback/process.md"
 sub defport
 {
   my $self = shift;
@@ -714,7 +769,7 @@ pushback::processclass->new(cat => '', 'in out')
 #line 17 "pushback/stdproc.md"
 pushback::processclass->new(each => 'fn', 'in')
   ->defjit(invoke => 'flowable', q{ &$fn($flowable); })
-  ->defadmittance('>in' => q{ 3 })
+  ->defadmittance('>in' => sub {})      # nop: preserve existing admittance
   ->defflow('>in' => sub
     {
       my ($self, $jit, $flowable) = @_;
