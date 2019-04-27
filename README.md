@@ -1,4 +1,4 @@
-# Pushback: flow control as control flow ![image](https://travis-ci.org/spencertipping/pushback.svg?branch=master)_
+# Pushback: flow control as control flow ![image](https://travis-ci.org/spencertipping/pushback.svg?branch=master)
 Pushback is an IO and code multiplexer for Perl.
 
 **TODO:** explain this better
