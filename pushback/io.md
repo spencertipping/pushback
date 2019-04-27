@@ -41,3 +41,11 @@ sub process_for
 
 sub rpc_for { ... }
 ```
+
+
+## `select` process
+```perl
+pushback::processclass->new('pushback::io::select',
+  'rb wb eb fhs',
+  'r:1024 w:1024 e:1024');
+```

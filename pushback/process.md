@@ -160,7 +160,7 @@ sub describe
 {
   my $self = shift;
   sprintf "[%s, pid=%d, ports=%s]",
-    ref($self),
+    ref($self) =~ s/.*:://r,
     $$self{process_id},
     join",", map $self->port_name($_) . ($$self{ports}[$_] ? "*" : ""),
                  0..$#{$$self{ports}};
@@ -438,7 +438,8 @@ sub port_name
 {
   no strict 'refs';
   my ($self, $port_index) = @_;
-  my $ports = \%{ref($self) . "::ports"};
+  my $ports       = \%{ref($self) . "::ports"};
+  my $port_ranges = \%{ref($self) . "::portranges"};
   $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }

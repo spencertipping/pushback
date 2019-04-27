@@ -1,8 +1,7 @@
 # Pushback: flow control as control flow
-Pushback is an IO and code multiplexer for Perl. It's sort of like a little
-operating system whose system call interface supports Perl values.
+Pushback is an IO and code multiplexer for Perl.
 
-**Not usable yet.**
+**TODO:** explain this better
 
 
 ## Documentation

@@ -456,7 +456,7 @@ sub describe
 {
   my $self = shift;
   sprintf "[%s, pid=%d, ports=%s]",
-    ref($self),
+    ref($self) =~ s/.*:://r,
     $$self{process_id},
     join",", map $self->port_name($_) . ($$self{ports}[$_] ? "*" : ""),
                  0..$#{$$self{ports}};
@@ -674,11 +674,12 @@ sub port_name
 {
   no strict 'refs';
   my ($self, $port_index) = @_;
-  my $ports = \%{ref($self) . "::ports"};
+  my $ports       = \%{ref($self) . "::ports"};
+  my $port_ranges = \%{ref($self) . "::portranges"};
   $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }
-#line 454 "pushback/process.md"
+#line 455 "pushback/process.md"
 package pushback::processclass;
 push our @ISA, 'pushback::jitclass';
 sub new
@@ -699,7 +700,7 @@ sub new
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 502 "pushback/process.md"
+#line 503 "pushback/process.md"
 sub defport
 {
   my $self = shift;
@@ -824,6 +825,10 @@ sub process_for
 }
 
 sub rpc_for { ... }
+#line 48 "pushback/io.md"
+pushback::processclass->new('pushback::io::select',
+  'rb wb eb fhs',
+  'r:1024 w:1024 e:1024');
 #line 7 "pushback/stdproc.md"
 pushback::processclass->new(cat => '', 'in out')
   ->defadmittance('>in' => 'out>')
