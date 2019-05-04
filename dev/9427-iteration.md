@@ -41,7 +41,28 @@ Similarly, no reason to have processes have IDs, nor hosts. IDs imply a level of
 addressibility that we have no use for.
 
 How do we connect stuff in a post-ID world? Seems like we have
-`$process->connect` that registers a `connection` object with each endpoint.
+`$process->connect` that registers a `connection` object with each endpoint. Any
+graph data structure will be fine.
+
+
+## What do ports connect to?
+e.g. `cat1::out ---> cat2::in` -- this looks like a symbolic connection. Do we
+define two types of ports, one-way and multi-way? That sounds right to me.
+
+Connections are opaque conduits. Processes dictate admittance and flow for an
+endpoint. I think this is workable for multi/multi connections:
+
+```
+      | <--- connection1 ---> |multi2
+multi1| <--- connection2 ---> |
+      | <--+
+           |
+           +--- connection3 ----> |something_else
+```
+
+`multi1` aggregates admittance/flow (if appropriate) for each connection. If
+both `multi1` and `multi2` are omnidirectional hubs, we'll get a flow cycle; we
+need a per-JIT STP to prevent compiler runaway.
 
 
 ## JIT invalidation
