@@ -267,9 +267,15 @@ sub is_negative
   &$f();
   $self->end_($jit);
 }
-#line 211 "pushback/flowable.md"
-pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
-  ->isa('pushback::flowable')
+#line 214 "pushback/flowable.md"
+package pushback::flowableclass;
+sub new
+{
+  my ($metaclass, $class, $state) = @_;
+  pushback::jitclass->new($class, $state)->isa('pushback::flowable');
+}
+#line 225 "pushback/flowable.md"
+pushback::flowableclass->new('pushback::flowable::array', 'xs n offset')
   ->def(new => sub
     {
       my $class   = shift;
@@ -321,9 +327,8 @@ pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
       my ($self, $jit, $rhs) = @_;
       $self->intersect_($jit, $$rhs{n});
     });
-#line 271 "pushback/flowable.md"
-pushback::jitclass->new('pushback::flowable::string', 'str n offset')
-  ->isa('pushback::flowable')
+#line 284 "pushback/flowable.md"
+pushback::flowableclass->new('pushback::flowable::string', 'str n offset')
   ->def(new => sub
     {
       my $class   =  shift;
@@ -419,30 +424,24 @@ sub next_id
     ++$#$self;
   }
 }
-#line 127 "pushback/process.md"
+#line 101 "pushback/process.md"
 package pushback::process;
 use overload qw/ == eq_by_refaddr
                  "" describe /;
 
 use Scalar::Util;
 
-no warnings 'portable';
-use constant HOST_MASK => 0xffff_f000_0000_0000;
-use constant PROC_MASK => 0x0000_0fff_ffff_0000;
-use constant PORT_MASK => 0x0000_0000_0000_ffff;
-
 sub new
 {
   my ($class, $io) = @_;
-  my $self = bless { ports              => [],
-                     pins               => {},
-                     process_id         => 0,
-                     admittance_fns     => {},
-                     flow_fns           => {},
-                     invalidation_flags => [],
-                     io                 => $io }, $class;
-  $$self{process_id} = $io->add_process($self);
-  $self;
+
+  warn "FIXME: do processes hold a reference to an IO?";
+  bless { ports              => [],
+          pins               => {},
+          admittance_fns     => {},    # FIXME
+          flow_fns           => {},    # FIXME
+          invalidation_flags => [],
+          io                 => $io }, $class;
 }
 
 sub DESTROY
@@ -455,36 +454,14 @@ sub DESTROY
 sub describe
 {
   my $self = shift;
-  sprintf "[%s, pid=%d, ports=%s]",
-    ref($self) =~ s/.*:://r,
-    $$self{process_id},
-    join",", map $self->port_name($_) . ($$self{ports}[$_] ? "*" : ""),
-                 0..$#{$$self{ports}};
+  sprintf "[%s, FIXME]", ref($self) =~ s/.*:://r;
 }
 
 sub eq_by_refaddr { Scalar::Util::refaddr shift == Scalar::Util::refaddr shift }
 
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
-sub process_id  { shift->{process_id} }
-sub host_id     { shift->{process_id} & HOST_MASK }
-
 sub process_for { shift->{io}->process_for(shift) }
-sub port_id_for
-{
-  my ($self, $port) = @_;
-  $$self{process_id} | $self->numeric_port($port);
-}
-
-sub numeric_port
-{
-  no strict 'refs';
-  my ($self, $port) = @_;
-  Scalar::Util::looks_like_number $port
-    ? $port
-    : ${ref($self) . "::ports"}{$port}
-      // die "$self doesn't define a port named $port";
-}
 
 sub invalidate_jit
 {
@@ -496,35 +473,14 @@ sub invalidate_jit
 
 sub connect
 {
-  my ($self, $port, $destination) = @_;
-  $port = $self->numeric_port($port);
-  return 0 if $$self{ports}[$port];
-  $$self{ports}[$port] = $destination;
-  $self->process_for($destination)
-       ->connect($destination & PORT_MASK, $self->port_id_for($port));
-  $self->invalidate_jit;
+  TODO();
 }
 
 sub disconnect
 {
-  my ($self, $port) = @_;
-  $port = $self->numeric_port($port);
-  my $destination = $$self{ports}[$port];
-  return 0 unless $destination;
-  $$self{ports}[$port] = 0;
-  $self->process_for($destination)->disconnect($destination & PORT_MASK);
-  $self->invalidate_jit;
+  TODO();
 }
-
-sub connection
-{
-  my ($self, $port) = @_;
-  $port = $self->numeric_port($port);
-  my $destination = $$self{ports}[$port];
-  $destination ? ($self->process_for($destination), $destination & PORT_MASK)
-               : ();
-}
-#line 259 "pushback/process.md"
+#line 184 "pushback/process.md"
 sub invalidation_flag_ref
 {
   my $self = shift;
@@ -535,6 +491,8 @@ sub invalidation_flag_ref
 
 sub admittance
 {
+  FIXME_admittance_should_be_managed_through_a_JIT_entry_abstraction();
+
   my ($self, $port, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
   return $proc->admittance("$direction$portname", $flowable)
@@ -567,6 +525,8 @@ sub compile_admittance
 
 sub flow
 {
+  FIXME_flow_should_be_managed_through_a_JIT_entry_abstraction();
+
   my ($self, $port, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
   return $proc->flow("$direction$portname", $flowable)
@@ -596,7 +556,7 @@ sub compile_flow
   $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
   $jit->compile;
 }
-#line 360 "pushback/process.md"
+#line 289 "pushback/process.md"
 sub zero_flow
 {
   my ($proc, $jit, $flowable) = @_;
@@ -633,7 +593,7 @@ sub jit_flow
   ($$flow{"=$portname"} // $$flow{"$direction$portname"}
                         // \&zero_flow)->($self, $jit, $flowable);
 }
-#line 401 "pushback/process.md"
+#line 330 "pushback/process.md"
 sub parse_portspec
 {
   no strict 'refs';
@@ -679,7 +639,7 @@ sub port_name
   $$ports{$_} == $port_index and return $_ for keys %$ports;
   undef;
 }
-#line 455 "pushback/process.md"
+#line 384 "pushback/process.md"
 package pushback::processclass;
 push our @ISA, 'pushback::jitclass';
 sub new
@@ -696,13 +656,14 @@ sub new
     $$self{flow}       = \%{"$$self{package}\::flow"};
   }
 
-  $$self{port_index} = 0;       # next free port number
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
-#line 503 "pushback/process.md"
+#line 434 "pushback/process.md"
 sub defport
 {
+  TODO_rewrite_all_of_this_to_support_multiports();
+
   my $self = shift;
   for my $port (@_)
   {
@@ -793,42 +754,25 @@ package pushback::io;
 use overload qw/ @{} processes /;
 sub new
 {
-  my ($class, $host_id) = @_;
-  bless { host_id       => $host_id // 0,
-          processes     => pushback::objectset->new,
+  my ($class) = @_;
+  bless { processes     => pushback::objectset->new,
           owned_objects => {} }, $class;
 }
 
 sub processes { shift->{processes} }
-sub host_id   { shift->{host_id} }
 
 sub add_process
 {
   my ($self, $proc) = @_;
-  $$self{host_id} << 44 | $$self{processes}->add($proc) << 16;
+  $$self{processes}->add($proc);
 }
 
 sub remove_process
 {
   my ($self, $proc) = @_;
-  $proc = $proc->process_id if ref $proc;
-  $$self{processes}->remove(($proc & pushback::process::PROC_MASK) >> 16);
+  TODO_add_objectset_remove_by_reference_not_by_index();
   $self;
 }
-
-sub process_for
-{
-  my ($self, $pid) = @_;
-  $pid >> 44 == $$self{host_id}
-    ? $$self{processes}[($pid & pushback::process::PROC_MASK) >> 16]
-    : $self->rpc_for($pid);
-}
-
-sub rpc_for { ... }
-#line 48 "pushback/io.md"
-pushback::processclass->new('pushback::io::select',
-  'rb wb eb fhs',
-  'r:1024 w:1024 e:1024');
 #line 7 "pushback/stdproc.md"
 pushback::processclass->new(cat => '', 'in out')
   ->defadmittance('>in' => 'out>')

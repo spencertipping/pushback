@@ -206,10 +206,23 @@ sub is_negative
 ```
 
 
+## Flowable metaclass
+Doesn't do anything special right now -- we just return a `jitclass` with the
+right parent.
+
+```perl
+package pushback::flowableclass;
+sub new
+{
+  my ($metaclass, $class, $state) = @_;
+  pushback::jitclass->new($class, $state)->isa('pushback::flowable');
+}
+```
+
+
 ## Array flowable
 ```perl
-pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
-  ->isa('pushback::flowable')
+pushback::flowableclass->new('pushback::flowable::array', 'xs n offset')
   ->def(new => sub
     {
       my $class   = shift;
@@ -268,8 +281,7 @@ pushback::jitclass->new('pushback::flowable::array', 'xs n offset')
 Used for file IO, for example.
 
 ```perl
-pushback::jitclass->new('pushback::flowable::string', 'str n offset')
-  ->isa('pushback::flowable')
+pushback::flowableclass->new('pushback::flowable::string', 'str n offset')
   ->def(new => sub
     {
       my $class   =  shift;

@@ -1,16 +1,5 @@
 # Process metaclass
-A process is an object that has a 28-bit numeric ID and up to 65536 ports, each
-of which may be connected to one other port on one other process. (Multiway
-connections involve delegating to a dedicated process to manage
-multicast/round-robin/etc.) Processes participate in a 64-bit address space that
-describes their location in a distributed context:
 
-```
-<host_id : 20> <object_id : 28> <port_id : 16>
-```
-
-Individual ID components are always referred to in their final bit locations.
-This means host IDs will always have their low 44 bits set to zero.
 
 
 ## Background and architectural considerations
@@ -19,21 +8,6 @@ process/process interaction is for the most part inlined. It's much more
 expensive to change port connections than it is to move lots of data within a
 fixed topology. (You can mitigate the impact of changes by breaking the inlining
 chains, which will cause shorter sections of JIT to be invalidated.)
-
-
-### Connecting to ports
-A connection has exactly two endpoints and monopolizes each port it's connected
-to. Connections are encoded as numbers assigned to port vectors within
-processes:
-
-```
-# connect (process 4: port 43) to (process 91: port 7)
-$$object4{ports}[43] = $localhost << 44 | 91 << 16 | 7;
-$$object91{ports}[7] = $localhost << 44 | 4  << 16 | 43;
-```
-
-Process IDs are always nonzero, so connected ports will have truthy values. `0`
-represents a disconnected port.
 
 
 ### Topology changes and JIT
@@ -130,23 +104,17 @@ use overload qw/ == eq_by_refaddr
 
 use Scalar::Util;
 
-no warnings 'portable';
-use constant HOST_MASK => 0xffff_f000_0000_0000;
-use constant PROC_MASK => 0x0000_0fff_ffff_0000;
-use constant PORT_MASK => 0x0000_0000_0000_ffff;
-
 sub new
 {
   my ($class, $io) = @_;
-  my $self = bless { ports              => [],
-                     pins               => {},
-                     process_id         => 0,
-                     admittance_fns     => {},
-                     flow_fns           => {},
-                     invalidation_flags => [],
-                     io                 => $io }, $class;
-  $$self{process_id} = $io->add_process($self);
-  $self;
+
+  warn "FIXME: do processes hold a reference to an IO?";
+  bless { ports              => [],
+          pins               => {},
+          admittance_fns     => {},    # FIXME
+          flow_fns           => {},    # FIXME
+          invalidation_flags => [],
+          io                 => $io }, $class;
 }
 
 sub DESTROY
@@ -159,36 +127,14 @@ sub DESTROY
 sub describe
 {
   my $self = shift;
-  sprintf "[%s, pid=%d, ports=%s]",
-    ref($self) =~ s/.*:://r,
-    $$self{process_id},
-    join",", map $self->port_name($_) . ($$self{ports}[$_] ? "*" : ""),
-                 0..$#{$$self{ports}};
+  sprintf "[%s, FIXME]", ref($self) =~ s/.*:://r;
 }
 
 sub eq_by_refaddr { Scalar::Util::refaddr shift == Scalar::Util::refaddr shift }
 
 sub io          { shift->{io} }
 sub ports       { shift->{ports} }
-sub process_id  { shift->{process_id} }
-sub host_id     { shift->{process_id} & HOST_MASK }
-
 sub process_for { shift->{io}->process_for(shift) }
-sub port_id_for
-{
-  my ($self, $port) = @_;
-  $$self{process_id} | $self->numeric_port($port);
-}
-
-sub numeric_port
-{
-  no strict 'refs';
-  my ($self, $port) = @_;
-  Scalar::Util::looks_like_number $port
-    ? $port
-    : ${ref($self) . "::ports"}{$port}
-      // die "$self doesn't define a port named $port";
-}
 
 sub invalidate_jit
 {
@@ -200,33 +146,12 @@ sub invalidate_jit
 
 sub connect
 {
-  my ($self, $port, $destination) = @_;
-  $port = $self->numeric_port($port);
-  return 0 if $$self{ports}[$port];
-  $$self{ports}[$port] = $destination;
-  $self->process_for($destination)
-       ->connect($destination & PORT_MASK, $self->port_id_for($port));
-  $self->invalidate_jit;
+  TODO();
 }
 
 sub disconnect
 {
-  my ($self, $port) = @_;
-  $port = $self->numeric_port($port);
-  my $destination = $$self{ports}[$port];
-  return 0 unless $destination;
-  $$self{ports}[$port] = 0;
-  $self->process_for($destination)->disconnect($destination & PORT_MASK);
-  $self->invalidate_jit;
-}
-
-sub connection
-{
-  my ($self, $port) = @_;
-  $port = $self->numeric_port($port);
-  my $destination = $$self{ports}[$port];
-  $destination ? ($self->process_for($destination), $destination & PORT_MASK)
-               : ();
+  TODO();
 }
 ```
 
@@ -266,6 +191,8 @@ sub invalidation_flag_ref
 
 sub admittance
 {
+  FIXME_admittance_should_be_managed_through_a_JIT_entry_abstraction();
+
   my ($self, $port, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
   return $proc->admittance("$direction$portname", $flowable)
@@ -298,6 +225,8 @@ sub compile_admittance
 
 sub flow
 {
+  FIXME_flow_should_be_managed_through_a_JIT_entry_abstraction();
+
   my ($self, $port, $flowable) = @_;
   my ($proc, $direction, $portname) = $self->parse_portspec($port);
   return $proc->flow("$direction$portname", $flowable)
@@ -468,7 +397,6 @@ sub new
     $$self{flow}       = \%{"$$self{package}\::flow"};
   }
 
-  $$self{port_index} = 0;       # next free port number
   $self->defport($_) for split/\s+/, $ports;
   $self;
 }
@@ -478,10 +406,13 @@ sub new
 ### Defining ports
 ```pl
 sub defport;            # ($name, $name, ...) -> $class
-sub defportrange;       # ($name => $size) -> $class
 sub defadmittance;      # ($name => $adm) -> $class
 sub defflow;            # ($name => $flow) -> $class
 ```
+
+**TODO:** redesign this: `defport` should be a meta-specialization of a more
+general connection behavior. `->connect()` takes a nondirectional port spec,
+`->jit_admittance` and `->jit_flow` are directional?
 
 Port definitions happen in three parts. First, you use `defport` or
 `defportrange` to specify that a port exists. This creates named aliases and
@@ -502,6 +433,8 @@ wouldn't make sense because flow is a side effect.)
 ```perl
 sub defport
 {
+  TODO_rewrite_all_of_this_to_support_multiports();
+
   my $self = shift;
   for my $port (@_)
   {
@@ -606,11 +539,3 @@ defadmittance('>in', sub
        ->copy($jit, $flowable);
 });
 ```
-
-
-### Port ranges
-You can define a range of ports that share admittance and flow characteristics.
-For example, a broadcast process would probably have a range of output ports,
-allowing users to connect or disconnect an unspecified number of processes.
-
-**TODO**
