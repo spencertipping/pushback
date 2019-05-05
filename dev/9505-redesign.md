@@ -71,3 +71,9 @@ things as surfaces, and other amoebas consume and produce complementary
 surfaces.
 
 ...I think that makes sense.
+
+Each link fuses things together; there's no reconfiguration possible here.
+That's a feature: otherwise we need JIT invalidation and it turns into a slow
+mess. Any reconfigurability is a degree of freedom within an amoeba. Then JIT
+chains drop out of scope naturally along with their endpoints. No machinery
+required.
