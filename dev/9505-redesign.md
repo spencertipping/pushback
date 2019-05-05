@@ -58,3 +58,16 @@ code like this is just that real-world functions tend to reduce the number of
 values rather than expand them. This creates a bias towards structuring as
 opposed to destructuring (and, incidentally, we see that bias reversed somewhat
 in languages with pattern matching constructs).
+
+
+## Directional surfaces and flow geometry
+Let's say flow is driven by amoeba-shaped things that connect directly to each
+other -- there's no concept of a connection-as-an-object. We can manage this
+linguistically by referring to a context-specific interface surface: it's a
+subset of the amoeba that corresponds to the next things you would naturally
+want to connect. A lot of amoebas are just stdin -> stdout with a possible
+stderr, but others are more involved. Amoebas generalize their connectable
+things as surfaces, and other amoebas consume and produce complementary
+surfaces.
+
+...I think that makes sense.
