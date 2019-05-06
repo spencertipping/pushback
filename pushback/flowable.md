@@ -1,9 +1,11 @@
 # Flowable projection
+
 A flowable represents a data transfer that might at some point happen but that
 hasn't been committed to yet. Pushback uses these during flow negotiation.
 
 
 ## Background
+
 If you're doing IO on byte arrays, you'll usually have signatures like this:
 
 ```c
@@ -24,6 +26,7 @@ with data flow.
 
 
 ### Negotiation and admittance
+
 All streams in pushback are negotiated, which means moving data through them is
 a two-step process. I'll outline the equivalent process in C-style IO before
 talking about how pushback negotiation works:
@@ -59,6 +62,7 @@ Pushback works almost this way, but with two important differences:
 
 
 ### Generalizing negotiation and flow
+
 At its core pushback is doing this:
 
 ```pl
@@ -112,6 +116,7 @@ This simplifies the flow logic.
 
 
 ### Problems with negotiation
+
 Negotiation isn't perfect. It's fairly straightforward to construct a situation
 that will cause negotiation to mispredict flow; for example:
 
@@ -157,6 +162,7 @@ queue with any depth to it.
 
 
 ## Flowable API
+
 Flowable state is almost entirely updated within a JIT context during
 negotiation.
 
@@ -177,6 +183,7 @@ $flowable->add($jit, $other);
 
 
 ## Flowable base
+
 ```perl
 package pushback::flowable;
 
@@ -207,6 +214,7 @@ sub is_negative
 
 
 ## Flowable metaclass
+
 Doesn't do anything special right now -- we just return a `jitclass` with the
 right parent.
 
@@ -221,6 +229,7 @@ sub new
 
 
 ## Array flowable
+
 ```perl
 pushback::flowableclass->new('pushback::flowable::array', 'xs n offset')
   ->def(new => sub
@@ -278,6 +287,7 @@ pushback::flowableclass->new('pushback::flowable::array', 'xs n offset')
 
 
 ## String flowable
+
 Used for file IO, for example.
 
 ```perl

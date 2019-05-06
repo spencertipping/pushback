@@ -1,4 +1,5 @@
 # Let's rethink the role of connections
+
 It just seems wrong to have a connection-as-a-thing in many cases. On the
 flipside, having connections gives you a switching fabric you can rearrange
 easily -- and there's a lot to recommend that.
@@ -8,6 +9,7 @@ feel less clunky.
 
 
 ## What's wrong with process/port/connection?
+
 - "Process" is good but misleading
 - "Port" is more general than 95% of use cases require
 - "Connection" is an annoyance most of the time
@@ -18,6 +20,7 @@ functional interface consists of just three.
 
 
 ## A philosophical tangent about `stdin`/`stdout`/`stderr`
+
 There's an analog to unary functions: `stdin` is a function's input value,
 `stdout` is its output value, and `stderr` is a stream of its side effects. We
 see this because `f | g | h` composes the outputs and aggregates the side
@@ -40,6 +43,7 @@ it's a bad example.
 
 
 ## Fluent flow-network definitions
+
 Expression-oriented languages _aren't_ fluent, we've just culturally acclimated
 to the idea that they are. None of them handles multiple return values in any
 palatable way, so we write functions that don't return multiple values. Anything
@@ -61,19 +65,23 @@ in languages with pattern matching constructs).
 
 
 ## Directional surfaces and flow geometry
-Let's say flow is driven by amoeba-shaped things that connect directly to each
-other -- there's no concept of a connection-as-an-object. We can manage this
-linguistically by referring to a context-specific interface surface: it's a
-subset of the amoeba that corresponds to the next things you would naturally
-want to connect. A lot of amoebas are just stdin -> stdout with a possible
-stderr, but others are more involved. Amoebas generalize their connectable
-things as surfaces, and other amoebas consume and produce complementary
-surfaces.
+
+Let's say flow is driven by amoeba-shaped things ("manifolds") that connect
+directly to each other -- there's no concept of a connection-as-an-object. We
+can manage this linguistically by referring to a context-specific interface
+surface: it's a subset of the manifold that corresponds to the next things you
+would naturally want to connect. A lot of manifolds are just stdin -> stdout
+with a possible stderr, but others are more involved. Manifolds generalize their
+connectable things as surfaces, and other manifolds consume and produce
+complementary surfaces.
 
 ...I think that makes sense.
 
 Each link fuses things together; there's no reconfiguration possible here.
 That's a feature: otherwise we need JIT invalidation and it turns into a slow
-mess. Any reconfigurability is a degree of freedom within an amoeba. Then JIT
+mess. Any reconfigurability is a degree of freedom within a manifold. Then JIT
 chains drop out of scope naturally along with their endpoints. No machinery
 required.
+
+(Incidentally, this means each such degree of freedom will have a _runtime_
+performance impact. That's fine with me.)

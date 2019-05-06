@@ -25,7 +25,7 @@
 use v5.14;
 use strict;
 use warnings;
-#line 59 "pushback/jit.md"
+#line 61 "pushback/jit.md"
 package pushback::jitclass;
 use Scalar::Util;
 sub new
@@ -35,7 +35,7 @@ sub new
                      ivars   => [split/\s+/, $ivars] }, $class;
   $self->bind_invalidation_methods;
 }
-#line 80 "pushback/jit.md"
+#line 83 "pushback/jit.md"
 sub isa
 {
   no strict 'refs';
@@ -50,7 +50,7 @@ sub defvar
   push @{$$class{ivars}}, map split(/\s+/), @_;
   $class;
 }
-#line 108 "pushback/jit.md"
+#line 112 "pushback/jit.md"
 sub bind_invalidation_methods
 {
   no strict 'refs';
@@ -78,7 +78,7 @@ sub bind_invalidation_methods
 
   $class;
 }
-#line 144 "pushback/jit.md"
+#line 149 "pushback/jit.md"
 sub def
 {
   no strict 'refs';
@@ -90,7 +90,7 @@ sub def
   }
   $class;
 }
-#line 178 "pushback/jit.md"
+#line 184 "pushback/jit.md"
 sub jit_op_arg
 {
   my ($arg, $index) = @_;
@@ -170,7 +170,7 @@ sub defjit
 
   $self;
 }
-#line 264 "pushback/jit.md"
+#line 271 "pushback/jit.md"
 package pushback::jitcompiler;
 use Scalar::Util qw/refaddr/;
 use overload qw/ "" describe /;
@@ -241,7 +241,7 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
-#line 181 "pushback/flowable.md"
+#line 188 "pushback/flowable.md"
 package pushback::flowable;
 
 sub if_nonzero
@@ -267,14 +267,14 @@ sub is_negative
   &$f();
   $self->end_($jit);
 }
-#line 214 "pushback/flowable.md"
+#line 222 "pushback/flowable.md"
 package pushback::flowableclass;
 sub new
 {
   my ($metaclass, $class, $state) = @_;
   pushback::jitclass->new($class, $state)->isa('pushback::flowable');
 }
-#line 225 "pushback/flowable.md"
+#line 234 "pushback/flowable.md"
 pushback::flowableclass->new('pushback::flowable::array', 'xs n offset')
   ->def(new => sub
     {
@@ -327,7 +327,7 @@ pushback::flowableclass->new('pushback::flowable::array', 'xs n offset')
       my ($self, $jit, $rhs) = @_;
       $self->intersect_($jit, $$rhs{n});
     });
-#line 284 "pushback/flowable.md"
+#line 294 "pushback/flowable.md"
 pushback::flowableclass->new('pushback::flowable::string', 'str n offset')
   ->def(new => sub
     {
@@ -385,7 +385,7 @@ pushback::flowableclass->new('pushback::flowable::string', 'str n offset')
       my ($self, $jit, $rhs) = @_;
       $self->intersect_($jit, $$rhs{n});
     });
-#line 22 "pushback/objectset.md"
+#line 23 "pushback/objectset.md"
 package pushback::objectset;
 use Scalar::Util qw/weaken/;
 
@@ -424,373 +424,5 @@ sub next_id
     ++$#$self;
   }
 }
-#line 101 "pushback/process.md"
-package pushback::process;
-use overload qw/ == eq_by_refaddr
-                 "" describe /;
-
-use Scalar::Util;
-
-sub new
-{
-  my ($class, $io) = @_;
-
-  warn "FIXME: do processes hold a reference to an IO?";
-  bless { ports              => [],
-          pins               => {},
-          admittance_fns     => {},    # FIXME
-          flow_fns           => {},    # FIXME
-          invalidation_flags => [],
-          io                 => $io }, $class;
-}
-
-sub DESTROY
-{
-  my $self = shift;
-  $$self{io}->remove_process($$self{process_id});
-  die "TODO: disconnect ports";
-}
-
-sub describe
-{
-  my $self = shift;
-  sprintf "[%s, FIXME]", ref($self) =~ s/.*:://r;
-}
-
-sub eq_by_refaddr { Scalar::Util::refaddr shift == Scalar::Util::refaddr shift }
-
-sub io          { shift->{io} }
-sub ports       { shift->{ports} }
-sub process_for { shift->{io}->process_for(shift) }
-
-sub invalidate_jit
-{
-  my $self = shift;
-  $$_ = 1 for @{$$self{invalidation_flags}};
-  @{$$self{invalidation_flags}} = ();
-  $self;
-}
-
-sub connect
-{
-  TODO();
-}
-
-sub disconnect
-{
-  TODO();
-}
-#line 184 "pushback/process.md"
-sub invalidation_flag_ref
-{
-  my $self = shift;
-  my $flag = 0;
-  push @{$$self{invalidation_flags}}, \$flag;
-  \$flag;
-}
-
-sub admittance
-{
-  FIXME_admittance_should_be_managed_through_a_JIT_entry_abstraction();
-
-  my ($self, $port, $flowable) = @_;
-  my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->admittance("$direction$portname", $flowable)
-    unless $proc == $self;
-
-  ($$self{admittance_fns}{"$direction$portname"}
-    //= $self->compile_admittance("$direction$portname", $flowable))
-  ->($flowable);
-}
-
-sub compile_admittance
-{
-  my ($self, $port, $flowable) = @_;
-  my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
-  my $jit_flowable = $flowable->copy_nonjit;
-
-  $jit->code(q[ sub {
-      goto &{$cached = &$regen($port, $flowable)} if $jit_invalidated;
-      $_[0]->copy_nonjit($flowable); ],
-    port            => $port,
-    cached          => $$self{admittance_fns}{$port},
-    regen           => $self->can('compile_admittance'),
-    jit_invalidated => ${$jit->invalidation_flag},
-    flowable        => $jit_flowable);
-
-  $self->jit_admittance($port, $jit, $jit_flowable);
-  $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
-  $jit->compile;
-}
-
-sub flow
-{
-  FIXME_flow_should_be_managed_through_a_JIT_entry_abstraction();
-
-  my ($self, $port, $flowable) = @_;
-  my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->flow("$direction$portname", $flowable)
-    unless $proc == $self;
-
-  ($$self{flow_fns}{"$direction$portname"}
-    //= $self->compile_flow("$direction$portname", $flowable))
-  ->($flowable);
-}
-
-sub compile_flow
-{
-  my ($self, $port, $flowable) = @_;
-  my $jit = pushback::jitcompiler->new(${$self->invalidation_flag_ref});
-  my $jit_flowable = $flowable->copy_nonjit;
-
-  $jit->code(q[ sub {
-      goto &{$cached = &$regen($port, $flowable)} if $jit_invalidated;
-      $_[0]->copy_nonjit($flowable); ],
-    port            => $port,
-    cached          => $$self{flow_fns}{$port},
-    regen           => $self->can('compile_flow'),
-    jit_invalidated => ${$jit->invalidation_flag},
-    flowable        => $jit_flowable);
-
-  $self->jit_flow($port, $jit, $jit_flowable);
-  $jit->code(q[ $flowable->copy_nonjit; } ], flowable => $jit_flowable);
-  $jit->compile;
-}
-#line 289 "pushback/process.md"
-sub zero_flow
-{
-  my ($proc, $jit, $flowable) = @_;
-  $jit->debug("#line 1 \"zero_flow\"");
-  $flowable->set_to($jit, 0);
-}
-
-sub jit_admittance
-{
-  no strict 'refs';
-  my ($self, $port, $jit, $flowable) = @_;
-  $jit->debug("#line 1 \"$self\::admittance($port)\"");
-
-  my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->jit_admittance("$direction$portname", $jit, $flowable)
-    unless $proc == $self;
-
-  my $admittance = \%{ref($self) . "::admittance"};
-  ($$admittance{"=$portname"} // $$admittance{"$direction$portname"}
-                              // \&zero_flow)->($self, $jit, $flowable);
-}
-
-sub jit_flow
-{
-  no strict 'refs';
-  my ($self, $port, $jit, $flowable) = @_;
-  $jit->debug("#line 1 \"$self\::flow($port)\"");
-
-  my ($proc, $direction, $portname) = $self->parse_portspec($port);
-  return $proc->jit_flow("$direction$portname", $jit, $flowable)
-    unless $proc == $self;
-
-  my $flow = \%{ref($self) . "::flow"};
-  ($$flow{"=$portname"} // $$flow{"$direction$portname"}
-                        // \&zero_flow)->($self, $jit, $flowable);
-}
-#line 330 "pushback/process.md"
-sub parse_portspec
-{
-  no strict 'refs';
-  my ($self, $port) = @_;
-  my ($portname, $direction);
-
-  # Handle remote port references: follow and delegate to the endpoint. Preserve
-  # direction by prepending it to the destination portspec.
-  if (($portname, $direction) = $port =~ /^(\w+)([<>=])$/)
-  {
-    my ($endpoint, $endport) = $self->connection(
-      Scalar::Util::looks_like_number($portname)
-        ? $portname
-        : ${ref($self) . "::ports"}{$portname}
-            // die "$self doesn't define named port $portname");
-    return $endpoint->parse_portspec("$direction$endport");
-  }
-
-  # We have a local port. Resolve it to a name and infer direction.
-  ($portname, $direction) = ($port, "=")
-    unless ($direction, $portname) = $port =~ /^([<>=])(\w+)$/;
-
-  if (Scalar::Util::looks_like_number $portname)
-  {
-    $portname = $self->port_name($portname)
-      // die "$self doesn't define $portname";
-  }
-  else
-  {
-    die "$self doesn't define named port $portname"
-      unless exists ${ref($self) . "::ports"}{$portname};
-  }
-
-  ($self, $direction, $portname);
-}
-
-sub port_name
-{
-  no strict 'refs';
-  my ($self, $port_index) = @_;
-  my $ports       = \%{ref($self) . "::ports"};
-  my $port_ranges = \%{ref($self) . "::portranges"};
-  $$ports{$_} == $port_index and return $_ for keys %$ports;
-  undef;
-}
-#line 384 "pushback/process.md"
-package pushback::processclass;
-push our @ISA, 'pushback::jitclass';
-sub new
-{
-  my ($class, $name, $vars, $ports) = @_;
-  my $self = pushback::jitclass::new $class,
-               $name =~ /::/ ? $name : "pushback::processes::$name", $vars;
-  $self->isa('pushback::process');
-  {
-    no strict 'refs';
-    no warnings 'once';
-    $$self{ports}      = \%{"$$self{package}\::ports"};
-    $$self{admittance} = \%{"$$self{package}\::admittance"};
-    $$self{flow}       = \%{"$$self{package}\::flow"};
-  }
-
-  $self->defport($_) for split/\s+/, $ports;
-  $self;
-}
-#line 434 "pushback/process.md"
-sub defport
-{
-  TODO_rewrite_all_of_this_to_support_multiports();
-
-  my $self = shift;
-  for my $port (@_)
-  {
-    my $index = $$self{ports}{$port} = $$self{port_index}++;
-    $self->def("connect_$port"    => sub { shift->connect($index, @_) })
-         ->def("disconnect_$port" => sub { shift->disconnect($index) })
-         ->def("$port\_port_id"   => sub { shift->port_id_for($index) });
-  }
-  $self;
-}
-
-sub defadmittance
-{
-  my ($self, $port, $a) = @_;
-  my ($direction, $portname) = $port =~ /^([<>=])(\w+)$/
-    or die "defadmittance: '$port' must begin with a direction indicator";
-  die "$self doesn't define port $portname"
-    unless exists $$self{ports}{$portname};
-
-  my ($aname, $adir);
-  if (ref $a)
-  {
-    $$self{admittance}{$port} = $a;
-  }
-  elsif (($adir, $aname) = $a =~ /^([<>=])(\w+)$/
-      or ($aname, $adir) = $a =~ /^(\w+)([<>=])$/)
-  {
-    die "$self doesn't define port $aname" unless exists $$self{ports}{$aname};
-    die "admittance from $port to $a modifies flow direction"
-      unless $adir eq $direction;
-
-    $$self{admittance}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      $proc->jit_admittance($a, $jit, $flowable);
-    };
-  }
-  else # compile expression
-  {
-    my $method = "$port\_admittance";
-    $self->defjit($method, 'result_', qq{ \$result_ = ($a); });
-    $$self{admittance}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      $proc->$method($jit, my $result);
-      $flowable->set_to($jit, $result);
-    };
-  }
-
-  $self;
-}
-
-sub defflow
-{
-  my ($self, $port, $f) = @_;
-  my ($direction, $portname) = $port =~ /^([<>=])(\w+)$/
-    or die "defadmittance: '$port' must begin with a direction indicator";
-  die "$self doesn't define port $portname"
-    unless exists $$self{ports}{$portname};
-
-  my ($fname, $fdir);
-  if (ref $f)
-  {
-    $$self{flow}{$port} = $f;
-  }
-  elsif (($fdir, $fname) = $f =~ /^([<>=])(\w+)$/
-      or ($fname, $fdir) = $f =~ /^(\w+)([<>=])$/)
-  {
-    die "$self doesn't define port $fname" unless exists $$self{ports}{$fname};
-    die "flow from $port to $f modifies direction" unless $fdir eq $direction;
-
-    $$self{flow}{$port} = sub
-    {
-      my ($proc, $jit, $flowable) = @_;
-      $proc->jit_flow($f, $jit, $flowable);
-    };
-  }
-  else
-  {
-    die "unknown flow delegation spec: '$f' (expecting function, self-route, "
-      . "or connection-route)";
-  }
-
-  $self;
-}
-#line 7 "pushback/io.md"
-package pushback::io;
-use overload qw/ @{} processes /;
-sub new
-{
-  my ($class) = @_;
-  bless { processes     => pushback::objectset->new,
-          owned_objects => {} }, $class;
-}
-
-sub processes { shift->{processes} }
-
-sub add_process
-{
-  my ($self, $proc) = @_;
-  $$self{processes}->add($proc);
-}
-
-sub remove_process
-{
-  my ($self, $proc) = @_;
-  TODO_add_objectset_remove_by_reference_not_by_index();
-  $self;
-}
-#line 7 "pushback/stdproc.md"
-pushback::processclass->new(cat => '', 'in out')
-  ->defadmittance('>in' => 'out>')
-  ->defadmittance('<out' => 'in<')
-  ->defflow('>in' => 'out>')
-  ->defflow('<out' => 'in<');
-#line 17 "pushback/stdproc.md"
-pushback::processclass->new(each => 'fn', 'in')
-  ->defjit(invoke => 'flowable', q{ &$fn($flowable); })
-  ->defadmittance('>in' => sub {})      # nop: preserve existing admittance
-  ->defflow('>in' => sub
-    {
-      my ($self, $jit, $flowable) = @_;
-      $self->invoke($jit, $flowable);
-    });
-#line 62 "pushback.md"
-package pushback;
-use Exporter qw/import/;
-use constant io => pushback::io->new;
-our @EXPORT = our @EXPORT_OK = qw/io/;
+#line 57 "pushback.md"
 1;

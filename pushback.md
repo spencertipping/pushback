@@ -1,4 +1,5 @@
 # Pushback
+
 As mentioned in the README, pushback is a control flow driver based on data
 mobility. The basic premise is that you have a series of objects connected
 together by data paths and those objects do things when data moves through them.
@@ -7,12 +8,11 @@ Perl is pathologically slow, so this type of abstraction isn't practical to use
 for general application development. Pushback works around this by flattening
 all of its logic using JIT (into Perl code). Objects exist as data accessors,
 but flow paths are all monomorphically specialized to minimize interpreter
-overhead. The result is that creating and modifying object connections is
-somewhat expensive, but data movement is comparable to optimal hand-written
-code.
+overhead. They should perform at least as well as hand-written code.
 
 
 ## License/header
+
 ```text
 # Pushback: flow control as control flow
 # Pushback is a fully negotiated IO/control multiplexer for Perl. See
@@ -46,22 +46,13 @@ use warnings;
 
 
 ## Internals
+
 - [JIT metaclass and compiler](pushback/jit.md)
 - [Flowable projection](pushback/flowable.md)
 - [Object address sets](pushback/objectset.md)
-- [Process metaclass](pushback/process.md)
-- [IO container](pushback/io.md)
-
-
-## Standard library
-- [Standard processes](pushback/stdproc.md)
 
 
 ## Footer
 ```perl
-package pushback;
-use Exporter qw/import/;
-use constant io => pushback::io->new;
-our @EXPORT = our @EXPORT_OK = qw/io/;
 1;
 ```
