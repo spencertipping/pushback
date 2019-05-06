@@ -49,8 +49,8 @@ use warnings;
 
 - [JIT metaclass and compiler](pushback/jit.md)
 - [Flow volumes](pushback/volume.md)
-- [Manifolds](pushback/manifold.md)
 - [Surfaces](pushback/surface.md)
+- [Manifolds](pushback/manifold.md)
 
 
 ## Footer
