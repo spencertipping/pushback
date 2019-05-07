@@ -14,8 +14,7 @@ outputs.
 Second, we introduce a call tracer that follows the topology of connected
 objects and inlines their logic fragments. Because we're inlining subroutines we
 address all data as mutable lvalues. Function composition is flattened into
-sequential side effects. The call tracer also manages cross-object invalidation;
-I'll explain this in more detail below.
+sequential side effects.
 
 
 ## JIT calling convention
@@ -63,9 +62,8 @@ use Scalar::Util;
 sub new
 {
   my ($class, $package, $ivars) = @_;
-  my $self = bless { package => $package,
-                     ivars   => [split/\s+/, $ivars] }, $class;
-  $self->bind_invalidation_methods;
+  bless { package => $package,
+          ivars   => [split/\s+/, $ivars] }, $class;
 }
 ```
 
@@ -92,48 +90,6 @@ sub defvar
 {
   my $class = shift;
   push @{$$class{ivars}}, map split(/\s+/), @_;
-  $class;
-}
-```
-
-
-### Deoptimization (JIT invalidation)
-
-JIT specializations become invalid when an object's call graph changes. To
-accommodate this, we need each JIT-enabled object to hold a reference to any
-specialization it's involved with. This is done with two methods:
-
-```pl
-$object->invalidate_jit_for('name');
-$object->add_invalidation_flag(name => $jit->invalidation_flag);
-```
-
-```perl
-sub bind_invalidation_methods
-{
-  no strict 'refs';
-  my $class = shift;
-  *{"$$class{package}\::add_invalidation_flag"} = sub
-  {
-    my $self = shift;
-    my $name = shift;
-    my $flags = $$self{jit_invalidation_flags_}{$name} //= [];
-    push @$flags, \shift;
-    Scalar::Util::weaken $$flags[-1];
-    $self;
-  };
-
-  *{"$$class{package}\::invalidate_jit_for"} = sub
-  {
-    my $self = shift;
-    my $name = shift;
-    my $flags = $$self{jit_invalidation_flags_}{$name};
-    return $self unless defined $flags;
-    defined and $$_ = 1 for @$flags;
-    delete $$self{jit_invalidation_flags_}{$name};
-    $self;
-  };
-
   $class;
 }
 ```
@@ -252,7 +208,6 @@ sub defjit
       die "$$self{package}\::$name: expected @$args but got " . scalar(@_)
         . " argument(s)" unless @_ == @$args;
 
-      $self->add_invalidation_flag($name, $jit->invalidation_flag);
       $jit->code(&$method($self, \@_,
                           $jit->refs, $jit->gensym_id, $jit->ref_gensyms));
     };
@@ -275,12 +230,11 @@ use overload qw/ "" describe /;
 sub new
 {
   my $class = shift;
-  bless { fragments    => [],
-          invalidation => \(shift // my $iflag),
-          gensym_id    => \(my $gensym = 0),
-          debug        => 0,
-          refs         => {},
-          ref_gensyms  => {} }, $class;
+  bless { fragments   => [],
+          gensym_id   => \(my $gensym = 0),
+          debug       => 0,
+          refs        => {},
+          ref_gensyms => {} }, $class;
 }
 
 sub enable_debugging { $_[0]->{debug} = 1; shift }
@@ -299,10 +253,9 @@ sub describe
   "jit( $vars ) {\n$code\n}";
 }
 
-sub gensym_id         { shift->{gensym_id} }
-sub refs              { shift->{refs} }
-sub ref_gensyms       { shift->{ref_gensyms} }
-sub invalidation_flag { shift->{invalidation} }
+sub gensym_id   { shift->{gensym_id} }
+sub refs        { shift->{refs} }
+sub ref_gensyms { shift->{ref_gensyms} }
 
 sub code
 {

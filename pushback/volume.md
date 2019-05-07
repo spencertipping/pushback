@@ -11,3 +11,8 @@ and backpressure. We could do that here, but it's a lot simpler to have
 manifolds implicitly handle this step. We don't care about backpressure for its
 own sake; our goal is to get the right amount of flow. So manifolds return
 modified flow volumes instead of dealing directly in backpressure.
+
+
+## ...in API terms
+
+You create a volume to describe some amount of data you want to move.

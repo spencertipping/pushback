@@ -25,17 +25,16 @@
 use v5.14;
 use strict;
 use warnings;
-#line 61 "pushback/jit.md"
+#line 60 "pushback/jit.md"
 package pushback::jitclass;
 use Scalar::Util;
 sub new
 {
   my ($class, $package, $ivars) = @_;
-  my $self = bless { package => $package,
-                     ivars   => [split/\s+/, $ivars] }, $class;
-  $self->bind_invalidation_methods;
+  bless { package => $package,
+          ivars   => [split/\s+/, $ivars] }, $class;
 }
-#line 83 "pushback/jit.md"
+#line 81 "pushback/jit.md"
 sub isa
 {
   no strict 'refs';
@@ -50,35 +49,7 @@ sub defvar
   push @{$$class{ivars}}, map split(/\s+/), @_;
   $class;
 }
-#line 112 "pushback/jit.md"
-sub bind_invalidation_methods
-{
-  no strict 'refs';
-  my $class = shift;
-  *{"$$class{package}\::add_invalidation_flag"} = sub
-  {
-    my $self = shift;
-    my $name = shift;
-    my $flags = $$self{jit_invalidation_flags_}{$name} //= [];
-    push @$flags, \shift;
-    Scalar::Util::weaken $$flags[-1];
-    $self;
-  };
-
-  *{"$$class{package}\::invalidate_jit_for"} = sub
-  {
-    my $self = shift;
-    my $name = shift;
-    my $flags = $$self{jit_invalidation_flags_}{$name};
-    return $self unless defined $flags;
-    defined and $$_ = 1 for @$flags;
-    delete $$self{jit_invalidation_flags_}{$name};
-    $self;
-  };
-
-  $class;
-}
-#line 149 "pushback/jit.md"
+#line 105 "pushback/jit.md"
 sub def
 {
   no strict 'refs';
@@ -90,7 +61,7 @@ sub def
   }
   $class;
 }
-#line 184 "pushback/jit.md"
+#line 140 "pushback/jit.md"
 sub jit_op_arg
 {
   my ($arg, $index) = @_;
@@ -162,7 +133,6 @@ sub defjit
       die "$$self{package}\::$name: expected @$args but got " . scalar(@_)
         . " argument(s)" unless @_ == @$args;
 
-      $self->add_invalidation_flag($name, $jit->invalidation_flag);
       $jit->code(&$method($self, \@_,
                           $jit->refs, $jit->gensym_id, $jit->ref_gensyms));
     };
@@ -170,7 +140,7 @@ sub defjit
 
   $self;
 }
-#line 271 "pushback/jit.md"
+#line 226 "pushback/jit.md"
 package pushback::jitcompiler;
 use Scalar::Util qw/refaddr/;
 use overload qw/ "" describe /;
@@ -178,12 +148,11 @@ use overload qw/ "" describe /;
 sub new
 {
   my $class = shift;
-  bless { fragments    => [],
-          invalidation => \(shift // my $iflag),
-          gensym_id    => \(my $gensym = 0),
-          debug        => 0,
-          refs         => {},
-          ref_gensyms  => {} }, $class;
+  bless { fragments   => [],
+          gensym_id   => \(my $gensym = 0),
+          debug       => 0,
+          refs        => {},
+          ref_gensyms => {} }, $class;
 }
 
 sub enable_debugging { $_[0]->{debug} = 1; shift }
@@ -202,10 +171,9 @@ sub describe
   "jit( $vars ) {\n$code\n}";
 }
 
-sub gensym_id         { shift->{gensym_id} }
-sub refs              { shift->{refs} }
-sub ref_gensyms       { shift->{ref_gensyms} }
-sub invalidation_flag { shift->{invalidation} }
+sub gensym_id   { shift->{gensym_id} }
+sub refs        { shift->{refs} }
+sub ref_gensyms { shift->{ref_gensyms} }
 
 sub code
 {
@@ -240,6 +208,36 @@ sub compile
   my $fn          = eval "use strict;use warnings;$code";
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
+}
+#line 12 "pushback/surface.md"
+package pushback::surface;
+use overload qw/ "" describe /;
+
+sub describe;   # ($self) -> string
+sub manifold;   # ($self) -> $manifold
+#line 26 "pushback/surface.md"
+package pushback::io_surface;
+push our @ISA, 'pushback::surface';
+use overload qw/ | fuse /;
+
+sub fuse;       # ($self, $manifold) -> $surface
+#line 36 "pushback/manifold.md"
+package pushback::manifold;
+use overload qw/ "" describe /;
+
+sub new
+{
+  my $class = shift;
+  bless { links => {} }, $class;
+}
+
+sub describe;       # ($self) -> string
+#line 54 "pushback/manifold.md"
+package pushback::manifoldclass;
+push our @ISA, 'pushback::jitclass';
+sub new
+{
+  pushback::jitclass::new(@_)->isa('pushback::manifold');
 }
 #line 58 "pushback.md"
 1;
