@@ -1,5 +1,4 @@
 # Manifolds
-
 Manifolds move data and negotiate data movement.
 
 When you're building them, they consume and create [surfaces](surface.md) to
@@ -14,7 +13,6 @@ admittance; see [volume.md](volume.md) for the full story.
 
 
 ## Type variance
-
 Surfaces and volumes don't interact directly. All covariance relationships are
 between surfaces/manifolds and volumes/manifolds.
 
@@ -31,7 +29,6 @@ classes and volumes opt into them.
 
 
 ## Manifold base class
-
 ```perl
 package pushback::manifold;
 use overload qw/ "" describe /;
@@ -47,7 +44,6 @@ sub describe;       # ($self) -> string
 
 
 ## Manifold metaclass
-
 ...is a child of the [JIT metaclass](jit.md).
 
 ```perl

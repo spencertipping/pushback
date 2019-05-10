@@ -1,5 +1,4 @@
 # Volume
-
 In our metaphor data has volume and is pushed through manifolds, where it
 encounters backpressure that reduces its flow rate. Our volume is
 incompressible, so to model this accurately we first "offer" an amount of data,
@@ -14,5 +13,4 @@ modified flow volumes instead of dealing directly in backpressure.
 
 
 ## ...in API terms
-
 You create a volume to describe some amount of data you want to move.

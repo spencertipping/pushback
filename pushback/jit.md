@@ -1,5 +1,4 @@
 # JIT metaclass
-
 The idea here is that we have normal OOP-style objects, but we want to
 specialize some call paths between them to eliminate both Perl's OOP overhead
 and its function calling overhead. Perl gives us a lot of latitude because we
@@ -18,7 +17,6 @@ sequential side effects.
 
 
 ## JIT calling convention
-
 Before I get into how the metaclass works, let's talk about what a JIT object
 does. A normal object uses Perl's standard calling convention: values come in as
 `@_` and are returned the way you'd expect. No surprises there. A JIT object
@@ -69,7 +67,6 @@ sub new
 
 
 ### Metaclass API
-
 ```pl
 sub isa;                      # (@base_classes...) -> $class
 sub def;                      # ($name => sub {...}) -> $class
@@ -96,7 +93,6 @@ sub defvar
 
 
 ### Normal method definition
-
 Not all methods need to involve JIT. `->def` will create a regular non-JIT
 function in the class. We don't interact with this from a JIT perspective, so we
 can just drop it into the destination package and call it a day.
@@ -117,7 +113,6 @@ sub def
 
 
 ### JIT method definition
-
 JIT methods are just like regular methods, except that they trace themselves
 into a JIT compiler provided as the first argument. That is:
 
@@ -219,7 +214,6 @@ sub defjit
 
 
 ## JIT compiler
-
 This is where we collect operations and references. It's surprisingly boring.
 
 ```perl
@@ -295,7 +289,6 @@ sub compile
 
 
 ## An impenetrable excuse for an example
-
 ```bash
 $ perl -I. -Mpushback -e '
     use strict;

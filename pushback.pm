@@ -25,7 +25,7 @@
 use v5.14;
 use strict;
 use warnings;
-#line 60 "pushback/jit.md"
+#line 58 "pushback/jit.md"
 package pushback::jitclass;
 use Scalar::Util;
 sub new
@@ -34,7 +34,7 @@ sub new
   bless { package => $package,
           ivars   => [split/\s+/, $ivars] }, $class;
 }
-#line 81 "pushback/jit.md"
+#line 78 "pushback/jit.md"
 sub isa
 {
   no strict 'refs';
@@ -49,7 +49,7 @@ sub defvar
   push @{$$class{ivars}}, map split(/\s+/), @_;
   $class;
 }
-#line 105 "pushback/jit.md"
+#line 101 "pushback/jit.md"
 sub def
 {
   no strict 'refs';
@@ -61,7 +61,7 @@ sub def
   }
   $class;
 }
-#line 140 "pushback/jit.md"
+#line 135 "pushback/jit.md"
 sub jit_op_arg
 {
   my ($arg, $index) = @_;
@@ -140,7 +140,7 @@ sub defjit
 
   $self;
 }
-#line 226 "pushback/jit.md"
+#line 220 "pushback/jit.md"
 package pushback::jitcompiler;
 use Scalar::Util qw/refaddr/;
 use overload qw/ "" describe /;
@@ -209,19 +209,19 @@ sub compile
   die "$@ compiling $code" if $@;
   &$fn(@{$$self{refs}}{@gensyms});
 }
-#line 12 "pushback/surface.md"
+#line 10 "pushback/surface.md"
 package pushback::surface;
 use overload qw/ "" describe /;
 
 sub describe;   # ($self) -> string
 sub manifold;   # ($self) -> $manifold
-#line 26 "pushback/surface.md"
+#line 23 "pushback/surface.md"
 package pushback::io_surface;
 push our @ISA, 'pushback::surface';
 use overload qw/ | fuse /;
 
 sub fuse;       # ($self, $manifold) -> $surface
-#line 36 "pushback/manifold.md"
+#line 33 "pushback/manifold.md"
 package pushback::manifold;
 use overload qw/ "" describe /;
 
@@ -232,7 +232,7 @@ sub new
 }
 
 sub describe;       # ($self) -> string
-#line 54 "pushback/manifold.md"
+#line 50 "pushback/manifold.md"
 package pushback::manifoldclass;
 push our @ISA, 'pushback::jitclass';
 sub new
