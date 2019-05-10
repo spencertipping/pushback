@@ -221,7 +221,7 @@ push our @ISA, 'pushback::surface';
 use overload qw/ | fuse /;
 
 sub fuse;       # ($self, $manifold) -> $surface
-#line 33 "pushback/manifold.md"
+#line 63 "pushback/manifold.md"
 package pushback::manifold;
 use overload qw/ "" describe /;
 
@@ -232,7 +232,8 @@ sub new
 }
 
 sub describe;       # ($self) -> string
-#line 50 "pushback/manifold.md"
+sub connection;     # ($self, $portname) -> ([$manifold, $port], ...)
+#line 87 "pushback/manifold.md"
 package pushback::manifoldclass;
 push our @ISA, 'pushback::jitclass';
 sub new

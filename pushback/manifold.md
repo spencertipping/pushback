@@ -28,6 +28,36 @@ supporting a min-flow operation. These algebraic contracts are defined as base
 classes and volumes opt into them.
 
 
+## Quick example: `map($fn)`
+`map` is simple because it has a stdio surface and three ports, `in`, `out`, and
+`err`. Flow capacity isn't quite 1:1 between `in` and `out` because `$fn` might
+produce an error; what we have is `in>out` gated on `err` if `err` is connected,
+passthrough if it isn't.
+
+Before I get into the details, let's talk about how we describe flow paths.
+
+`in>out` is simple enough: move data from `in` and into `out`. Data presumably
+wouldn't flow in reverse because `>` specifies direction.
+
+If we want to incorporate `err`, we need to capture the idea that an input can
+become either an output or an error. We can do this by intersecting `out` and
+`err`: `in>(out^err)`. Our grammar flow grammar doesn't support parentheses, nor
+does it need to: we're describing a single path along which data moves. So we
+can just write `in>out^err` and `>` will take lowest precedence.
+
+```pl
+pushback::manifoldclass
+  ->new('pushback::manifold::map', 'fn')  # no prefix on 'fn' == ctor arg
+  ->defsurface('pushback::stdio')         # adds 'in', 'out', 'err' monoports
+  ->defflow('in>out^err', sub
+    {
+      # This function defines the actual flow logic. '(in>out)^err' describes
+      # the admittance calculations for us.
+      my ($self, $jit, $volume) = @_;
+    })
+```
+
+
 ## Manifold base class
 ```perl
 package pushback::manifold;
@@ -40,11 +70,18 @@ sub new
 }
 
 sub describe;       # ($self) -> string
+sub connection;     # ($self, $portname) -> ([$manifold, $port], ...)
 ```
 
 
 ## Manifold metaclass
-...is a child of the [JIT metaclass](jit.md).
+...is a child of the [JIT metaclass](jit.md). Here's the API:
+
+```pl
+sub defmonoport;    # ($self, $name) -> $self'
+sub defmultiport;   # ($self, $name) -> $self'
+sub defsurface;     # ($self, $surface) -> $self'
+```
 
 ```perl
 package pushback::manifoldclass;
