@@ -233,12 +233,17 @@ sub new
 
 sub describe;       # ($self) -> string
 sub connection;     # ($self, $portname) -> ([$manifold, $port], ...)
-#line 87 "pushback/manifold.md"
+#line 102 "pushback/manifold.md"
 package pushback::manifoldclass;
 push our @ISA, 'pushback::jitclass';
 sub new
 {
-  pushback::jitclass::new(@_)->isa('pushback::manifold');
+  no strict 'refs';
+  my $self = pushback::jitclass::new(@_)->isa('pushback::manifold');
+  $$self{port_descriptors}    = \%{"$$self{package}\::port_descriptors"};
+  $$self{surface_descriptors} = \%{"$$self{package}\::surface_descriptors"};
+  $$self{flow_descriptors}    = \%{"$$self{package}\::flow_descriptors"};
+  $self;
 }
 #line 58 "pushback.md"
 1;

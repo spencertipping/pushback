@@ -51,8 +51,8 @@ pushback::manifoldclass
   ->defsurface('pushback::stdio')         # adds 'in', 'out', 'err' monoports
   ->defflow('in>out^err', sub
     {
-      # This function defines the actual flow logic. '(in>out)^err' describes
-      # the admittance calculations for us.
+      # This function defines the actual flow logic. 'in>out^err' describes the
+      # admittance calculations for us.
       my ($self, $jit, $volume) = @_;
     })
 ```
@@ -74,6 +74,20 @@ sub connection;     # ($self, $portname) -> ([$manifold, $port], ...)
 ```
 
 
+### Flow descriptors
+Things like `in>out^err` are flow specifications: they describe the direction
+and admittance constraints involved in some data movement. We support three
+operators:
+
+- `$from_port > $to_port`
+- `$port1 | $port2`: union ports
+- `$port1 ^ $port2`: intersect ports
+
+**FIXME:** this design seems wrong. Do we really need a grammar for this? Is it
+extensible with other operators? Better would be to have a perl-hosted DSL or
+something.
+
+
 ## Manifold metaclass
 ...is a child of the [JIT metaclass](jit.md). Here's the API:
 
@@ -81,6 +95,7 @@ sub connection;     # ($self, $portname) -> ([$manifold, $port], ...)
 sub defmonoport;    # ($self, $name) -> $self'
 sub defmultiport;   # ($self, $name) -> $self'
 sub defsurface;     # ($self, $surface) -> $self'
+sub defflow;        # ($self, $path, $fn) -> $self'
 ```
 
 ```perl
@@ -88,6 +103,11 @@ package pushback::manifoldclass;
 push our @ISA, 'pushback::jitclass';
 sub new
 {
-  pushback::jitclass::new(@_)->isa('pushback::manifold');
+  no strict 'refs';
+  my $self = pushback::jitclass::new(@_)->isa('pushback::manifold');
+  $$self{port_descriptors}    = \%{"$$self{package}\::port_descriptors"};
+  $$self{surface_descriptors} = \%{"$$self{package}\::surface_descriptors"};
+  $$self{flow_descriptors}    = \%{"$$self{package}\::flow_descriptors"};
+  $self;
 }
 ```
